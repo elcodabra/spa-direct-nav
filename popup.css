@@ -157,6 +157,101 @@ button.link {
 
 #history li:hover { background: var(--panel); }
 
+/* ---------- tabs ---------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 7px 10px;
+  margin-bottom: -1px; /* sit the active underline on the row border */
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+
+.tab:hover { color: var(--text); }
+
+.tab.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.tabpanel[hidden] { display: none; }
+
+/* ---------- API routing ---------- */
+
+.apis-on {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.apis-on b { color: var(--text); font-weight: 600; }
+
+.api-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.api-form input {
+  min-width: 0; /* let flex shrink them */
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+#apiPrefix { flex: 0 0 64px; }
+#apiTarget { flex: 1; }
+.api-form .arrow { color: var(--muted); font-size: 12px; }
+.api-form button { padding: 6px 10px; font-size: 12px; }
+.api-form input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#apiList { list-style: none; margin: 0; padding: 0; }
+
+.api-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.api-item.here { background: var(--panel); }
+
+.api-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.api-del {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+.api-del:hover { color: #ff7a7a; }
+
+.api-empty { padding: 4px 8px; font-size: 11px; color: var(--muted); }
+
 .status {
   margin: 10px 0 0;
   font-size: 11px;

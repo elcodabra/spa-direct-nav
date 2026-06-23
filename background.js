@@ -59,6 +59,30 @@ chrome.webNavigation.onBeforeNavigate.addListener((d) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(errKey(tabId)));
 
+/* ---------- per-site API routing (declarativeNetRequest) ---------- */
+
+// Rebuild ALL of our dynamic rules from the saved routes. We own every dynamic
+// rule in this extension, so the simplest correct sync is remove-all + add-fresh
+// (ids are reassigned each time by buildApiRoutingRules).
+async function syncApiRules() {
+  const routes = await new Promise((resolve) =>
+    chrome.storage.local.get(API_ROUTES_KEY, (r) => resolve(r[API_ROUTES_KEY] || []))
+  );
+  const addRules = buildApiRoutingRules(routes, 1);
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: existing.map((rule) => rule.id),
+    addRules,
+  });
+  dlog("API routing: synced", addRules.length, "rules from", routes.length, "route(s)");
+}
+
+chrome.runtime.onInstalled.addListener(() => syncApiRules());
+chrome.runtime.onStartup.addListener(() => syncApiRules());
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[API_ROUTES_KEY]) syncApiRules();
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "smartNav") {
     smartNav(msg.tabId, msg.target)

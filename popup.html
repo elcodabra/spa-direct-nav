@@ -13,55 +13,76 @@
       <p class="origin" id="origin">—</p>
     </header>
 
-    <label class="field">
-      <span>Path or full URL</span>
-      <input
-        id="target"
-        type="text"
-        placeholder="/dashboard/settings or https://app.example.com/page"
-        autocomplete="off"
-        spellcheck="false"
-      />
-    </label>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" id="tabNavBtn" data-tab="nav" role="tab" aria-selected="true">Navigate</button>
+      <button class="tab" id="tabRecentBtn" data-tab="recent" role="tab" aria-selected="false">Recent</button>
+      <button class="tab" id="tabApiBtn" data-tab="api" role="tab" aria-selected="false">API routing</button>
+    </nav>
 
-    <div class="mode">
-      <label title="Uses the History API + popstate so the SPA router reacts without a full page reload.">
-        <input type="radio" name="mode" value="soft" checked />
-        Soft (SPA route, no reload)
+    <div class="tabpanel" id="tab-nav" role="tabpanel">
+      <label class="field">
+        <span>Path or full URL</span>
+        <input
+          id="target"
+          type="text"
+          placeholder="/dashboard/settings or https://app.example.com/page"
+          autocomplete="off"
+          spellcheck="false"
+        />
       </label>
-      <label title="Sets window.location — performs a full page load at the target URL.">
-        <input type="radio" name="mode" value="hard" />
-        Hard (full reload)
-      </label>
-    </div>
 
-    <div class="actions">
-      <button id="go" class="primary">Go</button>
-      <button id="useCurrent" class="ghost" title="Fill the box with the current page path">Current</button>
-    </div>
-
-    <div class="auto-block">
-      <label class="auto" title="On any site, automatically recover deep links the server 404s on a cold load (address bar, refresh, shared links).">
-        <input type="checkbox" id="autoAll" />
-        <span>Auto-fix deep links on all sites</span>
-      </label>
-      <label class="auto sub" title="Skip auto-fix on this host only.">
-        <input type="checkbox" id="blockHost" />
-        <span>Disable on <b id="autoHostName">this host</b></span>
-      </label>
-      <label class="auto sub" title="Print diagnostic logs to the page and service-worker consoles.">
-        <input type="checkbox" id="debugLog" />
-        <span>Debug logging</span>
-      </label>
-    </div>
-
-    <section class="recent">
-      <div class="recent-head">
-        <span>Recent</span>
-        <button id="clear" class="link">clear</button>
+      <div class="mode">
+        <label title="Uses the History API + popstate so the SPA router reacts without a full page reload.">
+          <input type="radio" name="mode" value="soft" checked />
+          Soft (SPA route, no reload)
+        </label>
+        <label title="Sets window.location — performs a full page load at the target URL.">
+          <input type="radio" name="mode" value="hard" />
+          Hard (full reload)
+        </label>
       </div>
-      <ul id="history"></ul>
-    </section>
+
+      <div class="actions">
+        <button id="go" class="primary">Go</button>
+        <button id="useCurrent" class="ghost" title="Fill the box with the current page path">Current</button>
+      </div>
+
+      <div class="auto-block">
+        <label class="auto" title="On any site, automatically recover deep links the server 404s on a cold load (address bar, refresh, shared links).">
+          <input type="checkbox" id="autoAll" />
+          <span>Auto-fix deep links on all sites</span>
+        </label>
+        <label class="auto sub" title="Skip auto-fix on this host only.">
+          <input type="checkbox" id="blockHost" />
+          <span>Disable on <b id="autoHostName">this host</b></span>
+        </label>
+        <label class="auto sub" title="Print diagnostic logs to the page and service-worker consoles.">
+          <input type="checkbox" id="debugLog" />
+          <span>Debug logging</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="tab-api" role="tabpanel" hidden>
+      <p class="apis-on">On <b id="apiSite">this site</b>, send requests under a path to another server.</p>
+      <div class="api-form">
+        <input id="apiPrefix" type="text" placeholder="/api" autocomplete="off" spellcheck="false" />
+        <span class="arrow">→</span>
+        <input id="apiTarget" type="text" placeholder="https://my-api.dev" autocomplete="off" spellcheck="false" />
+        <button id="apiAdd" class="ghost">Add</button>
+      </div>
+      <ul id="apiList"></ul>
+    </div>
+
+    <div class="tabpanel" id="tab-recent" role="tabpanel" hidden>
+      <section class="recent">
+        <div class="recent-head">
+          <span>Recent destinations</span>
+          <button id="clear" class="link">clear</button>
+        </div>
+        <ul id="history"></ul>
+      </section>
+    </div>
 
     <p class="status" id="status"></p>
   </div>

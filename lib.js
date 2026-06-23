@@ -84,7 +84,95 @@ function pathOf(url) {
   }
 }
 
+const API_ROUTES_KEY = "spaDirectNav.apiRoutes"; // storage.local: array of {id, site, prefix, target, enabled}
+
+/** Escape a string for safe literal use inside a regular expression. */
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Build declarativeNetRequest dynamic rules for the per-site API-routing feature.
+ *
+ * For each enabled route `{ site, prefix, target }` it emits TWO rules:
+ *   1. redirect — `<site><prefix>/rest…`  →  `<target>/rest…`  (the prefix is
+ *      stripped; query and the remaining path are preserved via a capture group).
+ *   2. modifyHeaders — adds permissive `Access-Control-*` headers to the target's
+ *      responses for requests the site initiated, so the now-cross-origin call
+ *      isn't blocked by CORS.
+ *
+ * Pure (no `chrome.*`), so the regex/strip logic is unit-testable under Node.
+ *
+ * @param {Array<{site:string, prefix:string, target:string, enabled?:boolean}>} routes
+ * @param {number} [startId=1] - first rule id to allocate (two ids consumed per route).
+ * @returns {Array<object>} dynamic-rule objects ready for `updateDynamicRules`.
+ */
+function buildApiRoutingRules(routes, startId) {
+  let id = startId || 1;
+  const rules = [];
+  const RESOURCE_TYPES = ["xmlhttprequest", "other", "websocket"];
+
+  for (const r of routes || []) {
+    if (!r || r.enabled === false) continue;
+
+    let site, target;
+    try {
+      site = new URL(r.site);
+      target = new URL(r.target);
+    } catch {
+      continue; // skip malformed entries instead of poisoning the whole rule set
+    }
+
+    const prefix = "/" + String(r.prefix || "").replace(/^\/+|\/+$/g, ""); // normalize to "/api"
+    if (prefix === "/") continue; // an empty prefix would capture the whole origin
+
+    const origin = site.origin; // e.g. https://app.example.com
+    const targetBase = target.origin + target.pathname.replace(/\/+$/, ""); // drop trailing slash
+
+    rules.push({
+      id: id++,
+      priority: 1,
+      action: { type: "redirect", redirect: { regexSubstitution: targetBase + "\\1" } },
+      condition: {
+        // ^<origin>/api(/rest…)?$  — group 1 is the remainder (path + query), or empty.
+        regexFilter: "^" + escapeRegExp(origin) + escapeRegExp(prefix) + "(/.*)?$",
+        resourceTypes: RESOURCE_TYPES,
+      },
+    });
+
+    rules.push({
+      id: id++,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        responseHeaders: [
+          { header: "access-control-allow-origin", operation: "set", value: origin },
+          { header: "access-control-allow-credentials", operation: "set", value: "true" },
+          { header: "access-control-allow-methods", operation: "set", value: "GET, POST, PUT, PATCH, DELETE, OPTIONS" },
+          { header: "access-control-allow-headers", operation: "set", value: "Content-Type, Authorization, X-Requested-With" },
+        ],
+      },
+      condition: {
+        requestDomains: [target.hostname],
+        initiatorDomains: [site.hostname],
+        resourceTypes: RESOURCE_TYPES,
+      },
+    });
+  }
+  return rules;
+}
+
 // Node-only export for unit tests; skipped in the browser/worker (module is undefined).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { spaIsServable, spaFindServableBase, sameUrl, normalizeUrl, pathOf, SPA_DEBUG_KEY };
+  module.exports = {
+    spaIsServable,
+    spaFindServableBase,
+    sameUrl,
+    normalizeUrl,
+    pathOf,
+    escapeRegExp,
+    buildApiRoutingRules,
+    SPA_DEBUG_KEY,
+    API_ROUTES_KEY,
+  };
 }

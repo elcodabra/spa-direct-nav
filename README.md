@@ -73,6 +73,29 @@ Whenever the extension recovers a deep link — or navigates for you from the po
 **confirmation toast** appears at the bottom of the page (e.g. *“Deep link recovered — routed
 to /dashboard/reports/q3”*), so you always know it acted.
 
+### C. Route an API path to another server
+
+Open the popup, switch to the **API routing** tab, and add a rule for the site you're on:
+
+```
+/api   →   https://my-api.dev
+```
+
+From then on, every request that page makes under `/api` is **redirected to your target
+server, with the `/api` prefix stripped** — so `…/api/users?page=2` becomes
+`https://my-api.dev/users?page=2`. Useful for pointing a deployed front-end at a local or
+staging backend without touching its code or running a dev proxy.
+
+- Rules are **per-site** (scoped to the exact origin shown) and listed under the form; the
+  **✕** removes one. Adding a rule for a path that already has one replaces it.
+- Because the target is usually a different origin, the redirected call would normally be
+  blocked by **CORS** — so the extension automatically adds permissive
+  `Access-Control-Allow-Origin` / `-Credentials` response headers for you.
+- **Caveat:** for *non-simple* requests (custom headers, `PUT`/`DELETE`, JSON bodies) the
+  browser sends a preflight `OPTIONS` first. Your target server must answer that `OPTIONS`
+  with a 2xx — the extension can add headers but can't invent a response. Simple `GET`/`POST`
+  calls work with no server changes.
+
 ### Settings (in the popup)
 
 - **Auto-fix deep links on all sites** — master on/off for the address-bar fixing (on by default).
@@ -154,7 +177,8 @@ npm test     # or: node --test  (Node 18+, no dependencies)
 - `scripting` + `host_permissions: <all_urls>` — run the soft-navigation routine in pages.
 - `webRequest` — observe main-frame HTTP status so auto-fix only fires on real errors.
 - `webNavigation` — invalidate stale error state when a new navigation starts.
-- `storage` — keep settings and the recent list; transient error state uses `storage.session`.
+- `declarativeNetRequest` — apply the per-site API-routing redirect + CORS-header rules.
+- `storage` — keep settings, the recent list, and API routes; transient error state uses `storage.session`.
 
 ### Limits
 
@@ -162,3 +186,6 @@ npm test     # or: node --test  (Node 18+, no dependencies)
 - Recovery attempts **one** redirect per chain (a `sessionStorage` guard prevents loops);
   if the chosen base also errors, the page is left as-is.
 - It can't run on restricted pages (`chrome://`, the Chrome Web Store, etc.).
+- API routing redirects the request **client-side**, so the target origin sees the call as
+  cross-origin. The extension injects CORS response headers, but it cannot fabricate a
+  preflight `OPTIONS` response — the target must answer `OPTIONS` for non-simple requests.

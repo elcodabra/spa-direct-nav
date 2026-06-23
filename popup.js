@@ -3,9 +3,11 @@ const HISTORY_KEY = "spaDirectNav.history";
 const AUTO_ENABLED_KEY = "spaDirectNav.autoEnabled";
 const AUTO_BLOCK_KEY = "spaDirectNav.autoBlocklist";
 const DEBUG_KEY = "spaDirectNav.debug";
+const API_ROUTES_KEY = "spaDirectNav.apiRoutes";
 const MAX_HISTORY = 12;
 
 let currentTab = null;
+let currentOrigin = null;
 
 init();
 
@@ -13,13 +15,16 @@ async function init() {
   currentTab = await getActiveTab();
   if (currentTab?.url) {
     try {
-      $("origin").textContent = new URL(currentTab.url).origin;
+      currentOrigin = new URL(currentTab.url).origin;
+      $("origin").textContent = currentOrigin;
     } catch {
       $("origin").textContent = currentTab.url;
     }
   }
   await renderHistory();
   await initAutoToggle();
+  await initApiRouting();
+  initTabs();
 
   $("go").addEventListener("click", navigate);
   $("useCurrent").addEventListener("click", fillCurrentPath);
@@ -34,6 +39,28 @@ function getActiveTab() {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
   });
+}
+
+/* ---------- tabs ---------- */
+
+function initTabs() {
+  const tabs = [
+    { btn: $("tabNavBtn"), panel: $("tab-nav"), focus: () => $("target").focus() },
+    { btn: $("tabApiBtn"), panel: $("tab-api"), focus: () => !$("apiPrefix").disabled && $("apiPrefix").focus() },
+    { btn: $("tabRecentBtn"), panel: $("tab-recent"), focus: () => {} },
+  ];
+
+  function select(name) {
+    for (const t of tabs) {
+      const on = t.btn.dataset.tab === name;
+      t.btn.classList.toggle("active", on);
+      t.btn.setAttribute("aria-selected", String(on));
+      t.panel.hidden = !on;
+      if (on) t.focus();
+    }
+  }
+
+  for (const t of tabs) t.btn.addEventListener("click", () => select(t.btn.dataset.tab));
 }
 
 function fillCurrentPath() {
@@ -257,6 +284,126 @@ function softNavigate(target) {
   // Some routers also listen for hashchange.
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   return { crossOrigin: false, pageOrigin: location.origin, targetOrigin: url.origin };
+}
+
+/* ---------- per-site API routing ---------- */
+
+function getApiRoutes() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(API_ROUTES_KEY, (r) => resolve(r[API_ROUTES_KEY] || []));
+  });
+}
+
+function setApiRoutes(routes) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [API_ROUTES_KEY]: routes }, resolve);
+  });
+}
+
+async function initApiRouting() {
+  $("apiSite").textContent = currentOrigin || "this site";
+
+  const addBtn = $("apiAdd");
+  const prefixEl = $("apiPrefix");
+  const targetEl = $("apiTarget");
+
+  // No usable origin (chrome:// etc.) → routing can't apply here.
+  if (!currentOrigin || !/^https?:$/.test(new URL(currentOrigin).protocol)) {
+    prefixEl.disabled = targetEl.disabled = addBtn.disabled = true;
+  }
+
+  addBtn.addEventListener("click", addApiRoute);
+  targetEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addApiRoute();
+  });
+
+  await renderApiRoutes();
+}
+
+async function addApiRoute() {
+  const prefix = $("apiPrefix").value.trim() || "/api";
+  const targetRaw = $("apiTarget").value.trim();
+  if (!currentOrigin) return setStatus("No site for routing here.", "error");
+  if (!/^\//.test(prefix)) return setStatus("Path must start with “/”.", "error");
+
+  let target;
+  try {
+    target = new URL(targetRaw);
+    if (!/^https?:$/.test(target.protocol)) throw new Error();
+  } catch {
+    return setStatus("Enter a full target URL (https://…).", "error");
+  }
+
+  const routes = await getApiRoutes();
+  const route = { id: Date.now(), site: currentOrigin, prefix, target: target.href, enabled: true };
+  // Replace any existing rule with the same site + prefix.
+  const next = routes.filter((r) => !(r.site === route.site && r.prefix === route.prefix));
+  next.push(route);
+  await setApiRoutes(next);
+
+  $("apiTarget").value = "";
+  $("apiPrefix").value = "";
+  setStatus(`Routing ${shortPath(route.site + route.prefix)} → ${target.host}.`, "ok");
+  await renderApiRoutes();
+}
+
+async function removeApiRoute(id) {
+  const routes = await getApiRoutes();
+  await setApiRoutes(routes.filter((r) => r.id !== id));
+  await renderApiRoutes();
+}
+
+async function renderApiRoutes() {
+  const routes = await getApiRoutes();
+  const ul = $("apiList");
+  ul.innerHTML = "";
+
+  if (!routes.length) {
+    const li = document.createElement("li");
+    li.className = "api-empty";
+    li.textContent = "No routes yet.";
+    ul.appendChild(li);
+    return;
+  }
+
+  // Current site first, then the rest, so the relevant rules are on top.
+  const sorted = [...routes].sort((a, b) =>
+    (a.site === currentOrigin ? 0 : 1) - (b.site === currentOrigin ? 0 : 1)
+  );
+
+  for (const r of sorted) {
+    const li = document.createElement("li");
+    li.className = "api-item" + (r.site === currentOrigin ? " here" : "");
+
+    const text = document.createElement("span");
+    text.className = "api-text";
+    const fromHost = (() => {
+      try {
+        return new URL(r.site).host;
+      } catch {
+        return r.site;
+      }
+    })();
+    const toHost = (() => {
+      try {
+        return new URL(r.target).host;
+      } catch {
+        return r.target;
+      }
+    })();
+    text.textContent = `${fromHost}${r.prefix} → ${toHost}`;
+    text.title = `${r.site}${r.prefix}  →  ${r.target}`;
+
+    const del = document.createElement("button");
+    del.className = "api-del";
+    del.textContent = "✕";
+    del.title = "Remove this route";
+    del.addEventListener("click", () => removeApiRoute(r.id));
+
+    li.appendChild(text);
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
 }
 
 /* ---------- recent history ---------- */
