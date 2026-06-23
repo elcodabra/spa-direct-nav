@@ -69,6 +69,10 @@ the right route**. You don't have to open the popup.
 This is **on by default for every site** and only kicks in when a page actually fails to
 load — normal pages are never touched.
 
+Whenever the extension recovers a deep link — or navigates for you from the popup — a brief
+**confirmation toast** appears at the bottom of the page (e.g. *“Deep link recovered — routed
+to /dashboard/reports/q3”*), so you always know it acted.
+
 ### Settings (in the popup)
 
 - **Auto-fix deep links on all sites** — master on/off for the address-bar fixing (on by default).
@@ -133,6 +137,7 @@ debug logging is **off by default** so your browsing isn't printed anywhere.
 | `popup.html` / `popup.css` / `popup.js` | Popup UI and the in-place soft path |
 | `background.js` | Service worker: smart-nav pipeline + `webRequest` error tracking |
 | `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
+| `toast.js` | In-page confirmation toast (`window.__spaToast`) shown on every extension navigation |
 | `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, …) |
 | `test/` | Node unit tests for `lib.js` |
 | `icons/` | Toolbar icons |

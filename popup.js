@@ -68,7 +68,15 @@ async function navigate() {
   if (!currentTab?.id) return setStatus("No active tab.", "error");
 
   if (mode === "hard") {
-    chrome.tabs.update(currentTab.id, { url: target }, () => {
+    const tabId = currentTab.id;
+    chrome.tabs.update(tabId, { url: target }, () => {
+      // The page reloads, so toast.js re-installs; fire once it finishes loading.
+      const onDone = (id, info) => {
+        if (id !== tabId || info.status !== "complete") return;
+        chrome.tabs.onUpdated.removeListener(onDone);
+        toastInTab(tabId, "Reloaded —", target);
+      };
+      chrome.tabs.onUpdated.addListener(onDone);
       onNavigated(target, "Reloaded at target.");
     });
     return;
@@ -84,6 +92,7 @@ async function navigate() {
         args: [target],
       });
       if (result && !result.crossOrigin && !result.notMounted) {
+        toastInTab(currentTab.id, "Jumped to", target);
         return onNavigated(target, "SPA route updated (soft).");
       }
       // No live app here (404 shell) or origin drifted — fall through to smart pipeline.
@@ -121,6 +130,32 @@ function sameHostAsCurrent(target) {
 function onNavigated(target, msg) {
   saveHistory(target);
   setStatus(msg, "ok");
+}
+
+/** Path portion of a URL, for compact toast/status text. */
+function shortPath(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search + u.hash || "/";
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Show an in-page confirmation toast in the given tab. Calls window.__spaToast,
+ * which toast.js defines in the shared isolated world; no-ops if it's absent
+ * (e.g. a restricted page) or injection isn't allowed.
+ */
+function toastInTab(tabId, label, target) {
+  const path = shortPath(target);
+  chrome.scripting
+    .executeScript({
+      target: { tabId },
+      func: (m, p) => window.__spaToast && window.__spaToast(m, { path: p }),
+      args: [label + " " + path, path],
+    })
+    .catch(() => {});
 }
 
 /* ---------- auto-recover controls (global + per-host disable) ---------- */

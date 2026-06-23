@@ -86,6 +86,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function smartNav(tabId, target) {
   dlog("smartNav target:", target, "tabId:", tabId);
+  const targetPath = pathOf(target);
   const base = await spaFindServableBase(target, {
     includeFull: true, // the popup target may be directly servable
     onProbe: (c, ok) => dlog("probe", c, "->", ok ? "200" : "not ok"),
@@ -95,12 +96,14 @@ async function smartNav(tabId, target) {
   if (!base) {
     // Nothing on this host responded — just try a plain full load.
     await navigateAndWait(tabId, target);
+    notifyToast(tabId, "Loaded " + targetPath, targetPath);
     return { mode: "hard", base: target, message: "No reachable base found — full load." };
   }
 
   if (sameUrl(base, target)) {
     // Server serves the deep route directly (it has an SPA fallback). Hard load is fine.
     await navigateAndWait(tabId, target);
+    notifyToast(tabId, "Loaded " + targetPath, targetPath);
     return { mode: "hard", base, message: "Server serves it directly — full load." };
   }
 
@@ -108,12 +111,28 @@ async function smartNav(tabId, target) {
   // then route the rest of the way.
   await navigateAndWait(tabId, base);
   const { ready, waitedMs } = await softNavigateInTab(tabId, target);
+  notifyToast(tabId, "Deep link recovered — routed to " + targetPath, targetPath);
   const note = ready ? `app ready in ${waitedMs}ms` : `router not detected after ${waitedMs}ms`;
   return {
     mode: "smart",
     base,
     message: `Loaded ${pathOf(base)} → soft-routed to ${pathOf(target)} (${note}).`,
   };
+}
+
+/**
+ * Fire an in-page confirmation toast in the tab. Runs the call in the shared
+ * isolated world where toast.js has already defined window.__spaToast; a missing
+ * helper (e.g. a restricted page) is a silent no-op.
+ */
+function notifyToast(tabId, message, path) {
+  chrome.scripting
+    .executeScript({
+      target: { tabId },
+      func: (m, p) => window.__spaToast && window.__spaToast(m, { path: p }),
+      args: [message, path || null],
+    })
+    .catch(() => {});
 }
 
 /** Update the tab and resolve once it reports `complete` (or times out). */
