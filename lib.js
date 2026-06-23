@@ -4,7 +4,12 @@
  *
  * Keeping the path-walking logic here ensures the popup-driven "smart" navigation
  * and the address-bar auto-fix agree on exactly which base they pick.
+ *
+ * Pure (no chrome.* / DOM references) so it can also be unit-tested under Node —
+ * see the CommonJS export guard at the bottom.
  */
+
+const SPA_DEBUG_KEY = "spaDirectNav.debug"; // storage.local flag gating console logs
 
 /** True if the URL responds with a 2xx. Cookies are sent (auth-gated dev deploys). */
 function spaIsServable(url) {
@@ -46,4 +51,40 @@ async function spaFindServableBase(href, opts) {
     if (ok) return i === segs.length ? u.href : candidate;
   }
   return null;
+}
+
+/** Same target ignoring hash (origin + pathname + search). */
+function sameUrl(a, b) {
+  try {
+    const ua = new URL(a);
+    const ub = new URL(b);
+    return ua.origin === ub.origin && ua.pathname === ub.pathname && ua.search === ub.search;
+  } catch {
+    return a === b;
+  }
+}
+
+/** Canonical form for comparing two URLs: origin + pathname + search (no hash). */
+function normalizeUrl(u) {
+  try {
+    const x = new URL(u);
+    return x.origin + x.pathname + x.search;
+  } catch {
+    return u;
+  }
+}
+
+/** Human-readable path of a URL for status messages. */
+function pathOf(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search + u.hash || "/";
+  } catch {
+    return url;
+  }
+}
+
+// Node-only export for unit tests; skipped in the browser/worker (module is undefined).
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { spaIsServable, spaFindServableBase, sameUrl, normalizeUrl, pathOf, SPA_DEBUG_KEY };
 }

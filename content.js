@@ -12,7 +12,6 @@
  * fetch() here is same-origin, so auth cookies are sent normally.
  */
 (function () {
-  console.log("[SPA Direct Nav · content] injected on", location.href);
   if (window.top !== window) return; // top frame only
 
   const ENABLED_KEY = "spaDirectNav.autoEnabled"; // default true
@@ -75,8 +74,12 @@
 
   function getConfig() {
     return new Promise((resolve) => {
-      chrome.storage.local.get([ENABLED_KEY, BLOCK_KEY], (r) =>
-        resolve({ enabled: r[ENABLED_KEY] !== false, blocked: r[BLOCK_KEY] || [] })
+      chrome.storage.local.get([ENABLED_KEY, BLOCK_KEY, SPA_DEBUG_KEY], (r) =>
+        resolve({
+          enabled: r[ENABLED_KEY] !== false,
+          blocked: r[BLOCK_KEY] || [],
+          debug: r[SPA_DEBUG_KEY] === true,
+        })
       );
     });
   }
@@ -94,10 +97,10 @@
     });
   }
 
-  const log = (...a) => console.log("[SPA Direct Nav · content]", ...a);
-
   (async function main() {
-    const { enabled, blocked } = await getConfig();
+    const { enabled, blocked, debug } = await getConfig();
+    const log = debug ? (...a) => console.log("[SPA Direct Nav · content]", ...a) : () => {};
+    log("injected on", location.href);
     if (!enabled) return log("disabled globally — skip");
     if (hostBlocked(blocked)) return log("host blocklisted — skip", location.hostname);
 

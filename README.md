@@ -42,6 +42,8 @@ How it stays safe across every site:
 Controls in the popup:
 - **Auto-fix deep links on all sites** — global on/off (default on).
 - **Disable on \<host\>** — per-host opt-out (blocklist).
+- **Debug logging** — off by default; turn on to print `[SPA Direct Nav]` diagnostics to
+  the page console (content script) and the service-worker console (background).
 
 Other niceties:
 
@@ -65,8 +67,17 @@ Other niceties:
 | `popup.js` | Resolves the target, runs the in-place soft path, manages recent history |
 | `background.js` | Service worker: smart-nav pipeline, webRequest error tracking |
 | `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
-| `lib.js` | Shared `spaFindServableBase` used by both `background.js` and `content.js` |
+| `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, …) |
+| `test/` | Node unit tests for `lib.js` |
 | `icons/` | Toolbar icons (16/48/128) |
+
+## Tests
+
+Pure logic in `lib.js` is unit-tested with Node's built-in test runner (no dependencies):
+
+```sh
+npm test     # or: node --test
+```
 
 ## Permissions
 

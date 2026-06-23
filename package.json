@@ -1,0 +1,9 @@
+{
+  "name": "spa-direct-nav",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension to navigate SPAs directly to any route/URL.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 const HISTORY_KEY = "spaDirectNav.history";
 const AUTO_ENABLED_KEY = "spaDirectNav.autoEnabled";
 const AUTO_BLOCK_KEY = "spaDirectNav.autoBlocklist";
+const DEBUG_KEY = "spaDirectNav.debug";
 const MAX_HISTORY = 12;
 
 let currentTab = null;
@@ -173,6 +174,16 @@ async function initAutoToggle() {
         blockBox.checked ? `Auto-fix disabled on ${host}.` : `Auto-fix re-enabled on ${host}.`,
         "ok"
       );
+    });
+  });
+
+  const debugBox = $("debugLog");
+  chrome.storage.local.get(DEBUG_KEY, (r) => {
+    debugBox.checked = r[DEBUG_KEY] === true;
+  });
+  debugBox.addEventListener("change", () => {
+    chrome.storage.local.set({ [DEBUG_KEY]: debugBox.checked }, () => {
+      setStatus(debugBox.checked ? "Debug logging on." : "Debug logging off.", "ok");
     });
   });
 }

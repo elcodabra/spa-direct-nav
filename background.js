@@ -10,11 +10,24 @@
  * the popup closing.
  */
 
-importScripts("lib.js"); // spaFindServableBase / spaIsServable
+importScripts("lib.js"); // spaFindServableBase / spaIsServable / sameUrl / pathOf / normalizeUrl
 
 const NAV_TIMEOUT_MS = 20000; // safety cap on waiting for a tab to finish loading
 const READY_TIMEOUT_MS = 8000; // max time to poll for the SPA router to mount
 const READY_POLL_MS = 50; // how often to re-check readiness inside the page
+
+// Logging is gated behind a storage flag (off by default) so we don't spam the
+// console with browsed URLs in normal use. Toggle "Debug logging" in the popup.
+let DEBUG = false;
+chrome.storage.local.get(SPA_DEBUG_KEY, (r) => {
+  DEBUG = r[SPA_DEBUG_KEY] === true;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[SPA_DEBUG_KEY]) DEBUG = changes[SPA_DEBUG_KEY].newValue === true;
+});
+const dlog = (...a) => {
+  if (DEBUG) console.log("[SPA Direct Nav]", ...a);
+};
 
 // Records the last main-frame HTTP error per tab so the content script can ask
 // "was my load an error?" and only then attempt deep-link recovery.
@@ -23,22 +36,14 @@ const READY_POLL_MS = 50; // how often to re-check readiness inside the page
 // MV3 service worker being evicted between the errored load and the content
 // script's document_idle query.
 const errKey = (tabId) => `err_${tabId}`;
-const normalize = (u) => {
-  try {
-    const x = new URL(u);
-    return x.origin + x.pathname + x.search; // ignore hash — SPAs mutate it
-  } catch {
-    return u;
-  }
-};
 
 chrome.webRequest.onCompleted.addListener(
   (details) => {
     if (details.frameId !== 0) return; // top frame only (defensive; type already filters)
     if (details.statusCode >= 400) {
-      console.log("[SPA Direct Nav] main-frame", details.statusCode, details.url);
+      dlog("main-frame", details.statusCode, details.url);
       chrome.storage.session.set({
-        [errKey(details.tabId)]: { url: normalize(details.url), status: details.statusCode },
+        [errKey(details.tabId)]: { url: normalizeUrl(details.url), status: details.statusCode },
       });
     } else {
       chrome.storage.session.remove(errKey(details.tabId)); // a good load clears any stale error
@@ -71,7 +76,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const key = errKey(tabId);
     chrome.storage.session.get(key, (r) => {
       const err = r[key];
-      const isError = !!err && err.url === normalize(msg.url);
+      const isError = !!err && err.url === normalizeUrl(msg.url);
       if (isError) chrome.storage.session.remove(key); // consume once
       sendResponse({ error: isError, status: err?.status });
     });
@@ -80,12 +85,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function smartNav(tabId, target) {
-  console.log("[SPA Direct Nav] smartNav target:", target, "tabId:", tabId);
+  dlog("smartNav target:", target, "tabId:", tabId);
   const base = await spaFindServableBase(target, {
     includeFull: true, // the popup target may be directly servable
-    onProbe: (c, ok) => console.log("[SPA Direct Nav] probe", c, "->", ok ? "200" : "not ok"),
+    onProbe: (c, ok) => dlog("probe", c, "->", ok ? "200" : "not ok"),
   });
-  console.log("[SPA Direct Nav] servable base:", base);
+  dlog("servable base:", base);
 
   if (!base) {
     // Nothing on this host responded — just try a plain full load.
@@ -192,23 +197,4 @@ function pageWaitThenSoftNavigate(full, timeoutMs, intervalMs) {
       setTimeout(poll, intervalMs);
     })();
   });
-}
-
-function sameUrl(a, b) {
-  try {
-    const ua = new URL(a);
-    const ub = new URL(b);
-    return ua.origin === ub.origin && ua.pathname === ub.pathname && ua.search === ub.search;
-  } catch {
-    return a === b;
-  }
-}
-
-function pathOf(url) {
-  try {
-    const u = new URL(url);
-    return u.pathname + u.search + u.hash || "/";
-  } catch {
-    return url;
-  }
 }
