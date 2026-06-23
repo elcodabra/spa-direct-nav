@@ -24,7 +24,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 async function smartNav(tabId, target) {
+  console.log("[SPA Direct Nav] smartNav target:", target, "tabId:", tabId);
   const base = await findServableBase(target);
+  console.log("[SPA Direct Nav] servable base:", base);
 
   if (!base) {
     // Nothing on this host responded — just try a plain full load.
@@ -69,7 +71,9 @@ async function findServableBase(target) {
       candidate = u.origin + "/" + segs.slice(0, i).join("/") + "/";
     }
 
-    if (await isServable(candidate)) {
+    const ok = await isServable(candidate);
+    console.log("[SPA Direct Nav] probe", candidate, "->", ok ? "200" : "not ok");
+    if (ok) {
       return i === segs.length ? target : candidate;
     }
   }

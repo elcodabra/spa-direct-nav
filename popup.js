@@ -79,8 +79,10 @@ async function navigate() {
         func: softNavigate,
         args: [target],
       });
-      if (!result?.crossOrigin) return onNavigated(target, "SPA route updated (soft).");
-      // origin drifted under us — fall through to the smart pipeline.
+      if (result && !result.crossOrigin && !result.notMounted) {
+        return onNavigated(target, "SPA route updated (soft).");
+      }
+      // No live app here (404 shell) or origin drifted — fall through to smart pipeline.
     } catch (e) {
       // injection failed (e.g. a 404 shell) — fall through to the smart pipeline.
     }
@@ -131,6 +133,18 @@ function softNavigate(target) {
   const sameHost = url.hostname === location.hostname && url.port === location.port;
   if (!sameHost) {
     return { crossOrigin: true, pageOrigin: location.origin, targetOrigin: url.origin };
+  }
+
+  // Only treat this as a live SPA if something is actually mounted. Otherwise we
+  // might be sitting on a 404 / error shell on the same host, where pushState does
+  // nothing useful — signal the caller to use the smart (reload-a-base) pipeline.
+  const mounted = ["#root", "#app", "#__next", "[data-reactroot]", "[ng-version]", "main", "body > div"]
+    .some((sel) => {
+      const el = document.querySelector(sel);
+      return el && (el.__vue_app__ || el.__vue__ || el.childElementCount > 0);
+    });
+  if (!mounted) {
+    return { crossOrigin: false, notMounted: true, pageOrigin: location.origin };
   }
 
   // Always navigate within the current origin, even if the typed protocol differed.
