@@ -72,12 +72,21 @@ Other niceties:
 - `tabs` / `activeTab` — read the active tab's URL and update it.
 - `scripting` + `host_permissions: <all_urls>` — inject the soft-navigation routine into the page.
 - `webRequest` — observe main-frame HTTP status so auto-fix only fires on real errors.
-- `storage` — keep the recent list and auto-fix settings.
+- `webNavigation` — invalidate stale error state when a new top-frame navigation starts.
+- `storage` — keep the recent list and auto-fix settings; error state lives in
+  `storage.session` so it survives the service worker being evicted.
 
 ## Notes / limits
 
 - Soft mode only works **same-origin**. A different host can't be reached via `pushState`,
   so the extension falls back to a full load.
-- Soft navigation relies on the router listening to `popstate`/`hashchange`. Most do;
-  a few custom routers may need a hard reload instead.
+- Soft navigation relies on the router listening to `popstate`/`hashchange`. React Router,
+  Vue Router and Angular react to these; a few routers (e.g. **Next.js App Router**) drive
+  navigation through their own history wrapper and may ignore a synthetic `popstate` — for
+  those, use **Hard** mode.
+- **Auth-gated dev sites:** if a deep link 404s but the servable base redirects to an SSO
+  login page that is itself an SPA, auto-fix may route into the login shell. Disable auto-fix
+  on that host if this is noisy.
+- The redirect→soft-route recovery only attempts **one** redirect per chain (a `sessionStorage`
+  guard) to avoid loops; if the chosen base also errors, it leaves the page as-is.
 - It cannot inject into restricted pages (`chrome://`, the Web Store, etc.).

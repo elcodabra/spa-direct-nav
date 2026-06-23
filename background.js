@@ -14,23 +14,43 @@ const NAV_TIMEOUT_MS = 20000; // safety cap on waiting for a tab to finish loadi
 const READY_TIMEOUT_MS = 8000; // max time to poll for the SPA router to mount
 const READY_POLL_MS = 50; // how often to re-check readiness inside the page
 
-// Tracks the last main-frame HTTP error per tab, so the content script can ask
+// Records the last main-frame HTTP error per tab so the content script can ask
 // "was my load an error?" and only then attempt deep-link recovery.
-const tabErrors = new Map(); // tabId -> { url, status }
+//
+// State lives in chrome.storage.session (not an in-memory Map) so it survives the
+// MV3 service worker being evicted between the errored load and the content
+// script's document_idle query.
+const errKey = (tabId) => `err_${tabId}`;
+const normalize = (u) => {
+  try {
+    const x = new URL(u);
+    return x.origin + x.pathname + x.search; // ignore hash — SPAs mutate it
+  } catch {
+    return u;
+  }
+};
 
 chrome.webRequest.onCompleted.addListener(
   (details) => {
+    if (details.frameId !== 0) return; // top frame only (defensive; type already filters)
     if (details.statusCode >= 400) {
-      tabErrors.set(details.tabId, { url: details.url, status: details.statusCode });
       console.log("[SPA Direct Nav] main-frame", details.statusCode, details.url);
+      chrome.storage.session.set({
+        [errKey(details.tabId)]: { url: normalize(details.url), status: details.statusCode },
+      });
     } else {
-      tabErrors.delete(details.tabId); // a good load clears any stale error
+      chrome.storage.session.remove(errKey(details.tabId)); // a good load clears any stale error
     }
   },
   { urls: ["<all_urls>"], types: ["main_frame"] }
 );
 
-chrome.tabs.onRemoved.addListener((tabId) => tabErrors.delete(tabId));
+// Invalidate stale error state as soon as a new top-frame navigation starts.
+chrome.webNavigation.onBeforeNavigate.addListener((d) => {
+  if (d.frameId === 0) chrome.storage.session.remove(errKey(d.tabId));
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(errKey(tabId)));
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "smartNav") {
@@ -42,10 +62,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "checkError") {
     const tabId = sender.tab?.id;
-    const err = tabId != null ? tabErrors.get(tabId) : null;
-    const isError = !!err && err.url === msg.url;
-    sendResponse({ error: isError, status: err?.status });
-    return false;
+    if (tabId == null) {
+      sendResponse({ error: false });
+      return false;
+    }
+    const key = errKey(tabId);
+    chrome.storage.session.get(key, (r) => {
+      const err = r[key];
+      const isError = !!err && err.url === normalize(msg.url);
+      if (isError) chrome.storage.session.remove(key); // consume once
+      sendResponse({ error: isError, status: err?.status });
+    });
+    return true; // async response
   }
 });
 

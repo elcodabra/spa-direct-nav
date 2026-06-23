@@ -18,6 +18,7 @@
   const ENABLED_KEY = "spaDirectNav.autoEnabled"; // default true
   const BLOCK_KEY = "spaDirectNav.autoBlocklist"; // array of host patterns
   const PENDING_KEY = "spaDirectNav.pendingRoute";
+  const ATTEMPT_KEY = "spaDirectNav.recoverAttempted"; // loop guard (sessionStorage)
   const MOUNT_TIMEOUT = 9000;
   const POLL_MS = 100;
 
@@ -131,6 +132,7 @@
       if (ok && pending !== here) {
         log("mounted — soft-routing to", pending);
         softRoute(pending);
+        sessionStorage.removeItem(ATTEMPT_KEY); // success — reset the loop guard
       } else {
         log("not mounted in time (ok=" + ok + ") — leaving base page");
       }
@@ -138,12 +140,21 @@
     }
 
     // Half 1: only act if this load was an actual HTTP error (cheap on normal pages).
-    if (here === "/") return;
+    if (here === "/") return sessionStorage.removeItem(ATTEMPT_KEY);
     const isError = await wasErrorLoad();
-    if (!isError) return log("load was not an HTTP error — nothing to do");
+    if (!isError) {
+      sessionStorage.removeItem(ATTEMPT_KEY); // a normal load resets the loop guard
+      return log("load was not an HTTP error — nothing to do");
+    }
     log("HTTP error load detected at", here, "— attempting recovery");
 
     if (isMounted()) return log("app already mounted despite error status — leaving as-is");
+
+    // Loop guard: never redirect more than once per recovery chain. If the base we
+    // picked also errors, bail instead of ricocheting between bases.
+    if (sessionStorage.getItem(ATTEMPT_KEY)) {
+      return log("already attempted a recovery redirect — bailing to avoid a loop");
+    }
 
     const base = await findServableBase();
     log("servable base:", base);
@@ -151,6 +162,7 @@
     if (!(await looksLikeSpa(base))) return log("base is not an SPA shell — leave 404 as-is");
 
     log("stashing", here, "and redirecting to base", base);
+    sessionStorage.setItem(ATTEMPT_KEY, "1");
     sessionStorage.setItem(PENDING_KEY, here);
     location.replace(base);
   })();
