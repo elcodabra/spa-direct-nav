@@ -94,15 +94,18 @@ button.primary:active { background: var(--accent-press); }
 
 button.ghost { background: transparent; }
 
+.auto-block { margin-bottom: 14px; }
+
 .auto {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 12px;
   color: var(--muted);
-  margin-bottom: 14px;
   cursor: pointer;
 }
+
+.auto.sub { margin-top: 6px; padding-left: 4px; font-size: 11px; }
 
 .auto b { color: var(--text); font-weight: 600; }
 

@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const HISTORY_KEY = "spaDirectNav.history";
-const AUTO_HOSTS_KEY = "spaDirectNav.autoHosts";
+const AUTO_ENABLED_KEY = "spaDirectNav.autoEnabled";
+const AUTO_BLOCK_KEY = "spaDirectNav.autoBlocklist";
 const MAX_HISTORY = 12;
 
 let currentTab = null;
@@ -121,41 +122,55 @@ function onNavigated(target, msg) {
   setStatus(msg, "ok");
 }
 
-/* ---------- auto-recover toggle (per host) ---------- */
+/* ---------- auto-recover controls (global + per-host disable) ---------- */
 
-function getAutoHosts() {
+function getAutoConfig() {
   return new Promise((resolve) => {
-    chrome.storage.local.get([AUTO_HOSTS_KEY], (r) => resolve(r[AUTO_HOSTS_KEY] || []));
+    chrome.storage.local.get([AUTO_ENABLED_KEY, AUTO_BLOCK_KEY], (r) =>
+      resolve({
+        enabled: r[AUTO_ENABLED_KEY] !== false, // default ON
+        blocked: r[AUTO_BLOCK_KEY] || [],
+      })
+    );
   });
 }
 
 async function initAutoToggle() {
-  const box = $("autoHost");
+  const allBox = $("autoAll");
+  const blockBox = $("blockHost");
+
   let host = "";
   try {
     host = new URL(currentTab.url).hostname;
   } catch {
     /* non-web page */
   }
+  $("autoHostName").textContent = host || "this host";
 
-  if (!host) {
-    $("autoHostName").textContent = "this host";
-    box.disabled = true;
-    return;
-  }
+  const { enabled, blocked } = await getAutoConfig();
+  allBox.checked = enabled;
+  blockBox.checked = !!host && blocked.includes(host);
+  blockBox.disabled = !host || !enabled;
 
-  $("autoHostName").textContent = host;
-  const hosts = await getAutoHosts();
-  box.checked = hosts.includes(host);
+  allBox.addEventListener("change", () => {
+    chrome.storage.local.set({ [AUTO_ENABLED_KEY]: allBox.checked }, () => {
+      blockBox.disabled = !host || !allBox.checked;
+      setStatus(
+        allBox.checked ? "Auto-fix enabled on all sites." : "Auto-fix turned off.",
+        "ok"
+      );
+    });
+  });
 
-  box.addEventListener("change", async () => {
-    const current = await getAutoHosts();
-    const next = box.checked
+  blockBox.addEventListener("change", async () => {
+    if (!host) return;
+    const { blocked: current } = await getAutoConfig();
+    const next = blockBox.checked
       ? [...new Set([...current, host])]
       : current.filter((h) => h !== host);
-    chrome.storage.local.set({ [AUTO_HOSTS_KEY]: next }, () => {
+    chrome.storage.local.set({ [AUTO_BLOCK_KEY]: next }, () => {
       setStatus(
-        box.checked ? `Auto-fix enabled on ${host}.` : `Auto-fix disabled on ${host}.`,
+        blockBox.checked ? `Auto-fix disabled on ${host}.` : `Auto-fix re-enabled on ${host}.`,
         "ok"
       );
     });

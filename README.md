@@ -21,14 +21,27 @@ the active tab there in one of two modes:
     8s cap), then soft-routes the rest of the way to the full URL.
 - **Hard** — sets the tab URL directly, performing a normal full page load at the target.
 
-### Address-bar auto-fix (no popup needed)
+### Address-bar auto-fix (universal, no popup needed)
 
-Tick **"Auto-fix deep links on \<host\>"** in the popup to enable a content script on
-that host. From then on, when you **paste a deep URL into the address bar** (or refresh,
-or open a shared link) and the server 404s it, the content script detects that no app
-mounted, walks up to a servable base, reloads there, and soft-routes back to your deep
-URL automatically. Because it runs in the page, its `fetch` probes are same-origin and
-carry your auth cookies. Enabled hosts are remembered (`chrome.storage.local`).
+**On by default for all sites.** When you **paste a deep URL into the address bar**
+(or refresh, or open a shared link) and the server returns a 404, the extension fixes
+it automatically — no popup interaction.
+
+How it stays safe across every site:
+
+1. The background worker observes main-frame responses via `webRequest` and remembers
+   when a navigation returned a 4xx/5xx.
+2. The content script only attempts recovery when the background confirms **this exact
+   load was an HTTP error** — so normal pages cost almost nothing and aren't touched.
+3. Before redirecting, it verifies the servable base is actually an **SPA shell**
+   (an empty `#root`/`#app`/`#__next` mount, `data-reactroot`, or `ng-version`), so a
+   genuine 404 on a non-SPA site is left exactly as the server returned it.
+4. It then walks up to that base, reloads, and soft-routes (`pushState`) back to your
+   deep URL. `fetch` probes run in the page → same-origin → your auth cookies are sent.
+
+Controls in the popup:
+- **Auto-fix deep links on all sites** — global on/off (default on).
+- **Disable on \<host\>** — per-host opt-out (blocklist).
 
 Other niceties:
 
@@ -58,7 +71,8 @@ Other niceties:
 
 - `tabs` / `activeTab` — read the active tab's URL and update it.
 - `scripting` + `host_permissions: <all_urls>` — inject the soft-navigation routine into the page.
-- `storage` — keep the local "recent" list.
+- `webRequest` — observe main-frame HTTP status so auto-fix only fires on real errors.
+- `storage` — keep the recent list and auto-fix settings.
 
 ## Notes / limits
 

@@ -40,10 +40,16 @@
       <button id="useCurrent" class="ghost" title="Fill the box with the current page path">Current</button>
     </div>
 
-    <label class="auto" title="When on this host, automatically recover deep links that the server 404s on a cold load (no popup needed).">
-      <input type="checkbox" id="autoHost" />
-      <span>Auto-fix deep links on <b id="autoHostName">this host</b></span>
-    </label>
+    <div class="auto-block">
+      <label class="auto" title="On any site, automatically recover deep links the server 404s on a cold load (address bar, refresh, shared links).">
+        <input type="checkbox" id="autoAll" />
+        <span>Auto-fix deep links on all sites</span>
+      </label>
+      <label class="auto sub" title="Skip auto-fix on this host only.">
+        <input type="checkbox" id="blockHost" />
+        <span>Disable on <b id="autoHostName">this host</b></span>
+      </label>
+    </div>
 
     <section class="recent">
       <div class="recent-head">

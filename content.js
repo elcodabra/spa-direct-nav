@@ -1,26 +1,25 @@
 /**
- * Content script — address-bar deep-link recovery.
+ * Content script — universal address-bar deep-link recovery.
  *
- * Runs in the page (isolated world) on hosts the user has enabled. When the
- * server can't serve a deep SPA route on a cold load (404 shell, no app mounts),
- * this walks up the path to a URL the server DOES serve, redirects there, and
- * once that base mounts, soft-routes (pushState) back to the original deep URL.
+ * Runs on every site (unless globally disabled or the host is blocklisted), but
+ * stays cheap: it only attempts recovery when the BACKGROUND confirms this page
+ * load returned an HTTP error (4xx/5xx) for the main frame. That status signal is
+ * what makes "all SPA sites" safe — normal pages and genuine 404s on non-SPA
+ * sites are left alone.
  *
- * Note: content scripts can't read page JS globals (React/Vue internals), so
- * "mounted" is detected purely from the DOM — an app container that has rendered
- * children. fetch() here is same-origin, so auth cookies are sent normally.
+ * Recovery: walk up the path to a URL the server serves, verify it's actually an
+ * SPA shell, redirect there, then soft-route (pushState) back to the deep URL.
+ * fetch() here is same-origin, so auth cookies are sent normally.
  */
 (function () {
   if (window.top !== window) return; // top frame only
 
-  const HOSTS_KEY = "spaDirectNav.autoHosts";
+  const ENABLED_KEY = "spaDirectNav.autoEnabled"; // default true
+  const BLOCK_KEY = "spaDirectNav.autoBlocklist"; // array of host patterns
   const PENDING_KEY = "spaDirectNav.pendingRoute";
-  const MOUNT_TIMEOUT_FRESH = 4000; // wait this long for a fresh load to mount
-  const MOUNT_TIMEOUT_AFTER_REDIRECT = 9000; // give the base page longer to boot
+  const MOUNT_TIMEOUT = 9000;
   const POLL_MS = 100;
 
-  // App-specific containers only. Deliberately NOT `main`/`body > div`, which
-  // generic 404/error pages also have (would cause false "mounted" positives).
   const APP_ROOTS = ["#root", "#app", "#__next", "[data-reactroot]", "[ng-version]"];
 
   function isMounted() {
@@ -58,8 +57,23 @@
     }
   }
 
-  // Walk up the path (excluding the current full path) to the deepest ancestor
-  // the server serves with a 2xx.
+  // Fetch a candidate base and check that it looks like an SPA shell, so we never
+  // hijack a normal multi-page site's 404 into a confusing redirect.
+  async function looksLikeSpa(url) {
+    try {
+      const res = await fetch(url, { method: "GET", redirect: "follow", cache: "no-store" });
+      if (!res.ok) return false;
+      const html = await res.text();
+      return (
+        /<div[^>]+id=["'](root|app|__next)["']/i.test(html) ||
+        /\sdata-reactroot/i.test(html) ||
+        /\sng-version=/i.test(html)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async function findServableBase() {
     const u = new URL(location.href);
     const segs = u.pathname.split("/").filter(Boolean);
@@ -71,42 +85,71 @@
     return null;
   }
 
-  function hostEnabled(hosts) {
-    return hosts.some((h) =>
+  function hostBlocked(list) {
+    return list.some((h) =>
       h.startsWith("*.") ? location.hostname.endsWith(h.slice(1)) : location.hostname === h
     );
   }
 
-  function getHosts() {
+  function getConfig() {
     return new Promise((resolve) => {
-      chrome.storage.local.get([HOSTS_KEY], (r) => resolve(r[HOSTS_KEY] || []));
+      chrome.storage.local.get([ENABLED_KEY, BLOCK_KEY], (r) =>
+        resolve({ enabled: r[ENABLED_KEY] !== false, blocked: r[BLOCK_KEY] || [] })
+      );
     });
   }
 
+  function wasErrorLoad() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "checkError", url: location.href }, (resp) => {
+          if (chrome.runtime.lastError) return resolve(false);
+          resolve(Boolean(resp?.error));
+        });
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
+  const log = (...a) => console.log("[SPA Direct Nav · content]", ...a);
+
   (async function main() {
-    const hosts = await getHosts();
-    if (!hostEnabled(hosts)) return;
+    const { enabled, blocked } = await getConfig();
+    if (!enabled) return log("disabled globally — skip");
+    if (hostBlocked(blocked)) return log("host blocklisted — skip", location.hostname);
 
     const here = location.pathname + location.search + location.hash;
 
-    // Returning from our own redirect: wait for the base app to mount, then
-    // soft-route to the deep path we stashed before redirecting.
+    // Half 2: we previously redirected to a base — soft-route to the stashed path.
     const pending = sessionStorage.getItem(PENDING_KEY);
     if (pending) {
       sessionStorage.removeItem(PENDING_KEY);
-      const ok = await waitForMount(MOUNT_TIMEOUT_AFTER_REDIRECT);
-      if (ok && pending !== here) softRoute(pending);
+      log("returned from redirect — waiting for app to mount, then routing to", pending);
+      const ok = await waitForMount(MOUNT_TIMEOUT);
+      if (ok && pending !== here) {
+        log("mounted — soft-routing to", pending);
+        softRoute(pending);
+      } else {
+        log("not mounted in time (ok=" + ok + ") — leaving base page");
+      }
       return;
     }
 
-    // Fresh load. If the app mounts on its own, this wasn't a broken deep link.
-    if (await waitForMount(MOUNT_TIMEOUT_FRESH)) return;
+    // Half 1: only act if this load was an actual HTTP error (cheap on normal pages).
+    if (here === "/") return;
+    const isError = await wasErrorLoad();
+    if (!isError) return log("load was not an HTTP error — nothing to do");
+    log("HTTP error load detected at", here, "— attempting recovery");
 
-    // App never mounted → treat as a server 404 for a deep route and recover.
-    if (here === "/") return; // nothing left to strip
+    if (isMounted()) return log("app already mounted despite error status — leaving as-is");
+
     const base = await findServableBase();
-    if (!base || new URL(base).pathname === location.pathname) return; // can't help
+    log("servable base:", base);
+    if (!base || new URL(base).pathname === location.pathname) return log("no usable base — give up");
+    if (!(await looksLikeSpa(base))) return log("base is not an SPA shell — leave 404 as-is");
 
+    log("stashing", here, "and redirecting to base", base);
     sessionStorage.setItem(PENDING_KEY, here);
     location.replace(base);
   })();

@@ -14,12 +14,38 @@ const NAV_TIMEOUT_MS = 20000; // safety cap on waiting for a tab to finish loadi
 const READY_TIMEOUT_MS = 8000; // max time to poll for the SPA router to mount
 const READY_POLL_MS = 50; // how often to re-check readiness inside the page
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+// Tracks the last main-frame HTTP error per tab, so the content script can ask
+// "was my load an error?" and only then attempt deep-link recovery.
+const tabErrors = new Map(); // tabId -> { url, status }
+
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    if (details.statusCode >= 400) {
+      tabErrors.set(details.tabId, { url: details.url, status: details.statusCode });
+      console.log("[SPA Direct Nav] main-frame", details.statusCode, details.url);
+    } else {
+      tabErrors.delete(details.tabId); // a good load clears any stale error
+    }
+  },
+  { urls: ["<all_urls>"], types: ["main_frame"] }
+);
+
+chrome.tabs.onRemoved.addListener((tabId) => tabErrors.delete(tabId));
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "smartNav") {
     smartNav(msg.tabId, msg.target)
       .then(sendResponse)
       .catch((e) => sendResponse({ error: e.message }));
     return true; // keep the message channel open for the async response
+  }
+
+  if (msg?.type === "checkError") {
+    const tabId = sender.tab?.id;
+    const err = tabId != null ? tabErrors.get(tabId) : null;
+    const isError = !!err && err.url === msg.url;
+    sendResponse({ error: isError, status: err?.status });
+    return false;
   }
 });
 
