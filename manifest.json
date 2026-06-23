@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "SPA Direct Nav",
+  "version": "1.0.0",
+  "description": "Navigate single-page applications directly to any route/URL — with or without a full page reload.",
+  "permissions": ["tabs", "activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "SPA Direct Nav",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

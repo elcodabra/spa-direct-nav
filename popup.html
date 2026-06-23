@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SPA Direct Nav</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>SPA Direct Nav</h1>
+      <p class="origin" id="origin">—</p>
+    </header>
+
+    <label class="field">
+      <span>Path or full URL</span>
+      <input
+        id="target"
+        type="text"
+        placeholder="/dashboard/settings or https://app.example.com/page"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </label>
+
+    <div class="mode">
+      <label title="Uses the History API + popstate so the SPA router reacts without a full page reload.">
+        <input type="radio" name="mode" value="soft" checked />
+        Soft (SPA route, no reload)
+      </label>
+      <label title="Sets window.location — performs a full page load at the target URL.">
+        <input type="radio" name="mode" value="hard" />
+        Hard (full reload)
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="go" class="primary">Go</button>
+      <button id="useCurrent" class="ghost" title="Fill the box with the current page path">Current</button>
+    </div>
+
+    <section class="recent">
+      <div class="recent-head">
+        <span>Recent</span>
+        <button id="clear" class="link">clear</button>
+      </div>
+      <ul id="history"></ul>
+    </section>
+
+    <p class="status" id="status"></p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
