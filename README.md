@@ -8,9 +8,16 @@ application — without hunting through the app's UI to get there.
 Type a **path** (`/dashboard/settings`) or a **full URL** into the popup and navigate
 the active tab there in one of two modes:
 
-- **Soft** — uses the History API (`pushState` + a synthetic `popstate`/`hashchange`)
-  so the SPA router (React Router, Vue Router, Angular, etc.) updates the view
-  **without a full page reload**. Cross-origin targets automatically fall back to a hard load.
+- **Soft** — updates the SPA route **without a full reload**:
+  - If you're already on the target host, it calls the History API in place
+    (`pushState` + synthetic `popstate`/`hashchange`) so the router (React Router,
+    Vue Router, Angular, …) re-renders instantly.
+  - For a **cold deep-link** (a different tab, or a server that 404s the deep route
+    on a fresh GET — common with feature-branch/preview deploys), it runs a
+    **probe-and-strip** pipeline in the background worker: it walks up the path
+    (`/a/b/c` → `/a/b/` → `/a/` → `/`), finds the deepest URL the server actually
+    serves (the app shell), hard-loads that, waits for the app to mount, then
+    soft-routes the rest of the way to the full URL.
 - **Hard** — sets the tab URL directly, performing a normal full page load at the target.
 
 Other niceties:
@@ -32,7 +39,8 @@ Other niceties:
 | --- | --- |
 | `manifest.json` | MV3 manifest, permissions, action/popup wiring |
 | `popup.html` / `popup.css` | Popup UI |
-| `popup.js` | Resolves the target, injects `softNavigate`, manages recent history |
+| `popup.js` | Resolves the target, runs the in-place soft path, manages recent history |
+| `background.js` | Service worker: probe-and-strip base finder + cold soft-route pipeline |
 | `icons/` | Toolbar icons (16/48/128) |
 
 ## Permissions

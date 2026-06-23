@@ -70,26 +70,45 @@ async function navigate() {
     return;
   }
 
-  // Soft: push the route via the History API inside the page, then notify the SPA router.
-  try {
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: currentTab.id },
-      func: softNavigate,
-      args: [target],
-    });
-    if (result?.crossOrigin) {
-      // Genuinely different host — pushState can't reach it, so fall back to a full load.
-      chrome.tabs.update(currentTab.id, { url: target }, () =>
-        onNavigated(
-          target,
-          `Cross-origin (page: ${result.pageOrigin} → target: ${result.targetOrigin}) — full load.`
-        )
-      );
-    } else {
-      onNavigated(target, "SPA route updated (soft).");
+  // Soft mode.
+  // Fast path: already on the target host with the app live → just pushState in place.
+  if (sameHostAsCurrent(target)) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: currentTab.id },
+        func: softNavigate,
+        args: [target],
+      });
+      if (!result?.crossOrigin) return onNavigated(target, "SPA route updated (soft).");
+      // origin drifted under us — fall through to the smart pipeline.
+    } catch (e) {
+      // injection failed (e.g. a 404 shell) — fall through to the smart pipeline.
     }
-  } catch (e) {
-    setStatus("Could not inject into this page: " + e.message, "error");
+  }
+
+  // Cold path: server may 404 the deep route, so find a servable base, load it,
+  // then soft-route the rest of the way. Handled in the background worker.
+  setStatus("Finding a servable base…", "");
+  chrome.runtime.sendMessage(
+    { type: "smartNav", tabId: currentTab.id, target },
+    (resp) => {
+      if (chrome.runtime.lastError) {
+        return setStatus(chrome.runtime.lastError.message, "error");
+      }
+      if (resp?.error) return setStatus(resp.error, "error");
+      onNavigated(target, resp?.message || "Done.");
+    }
+  );
+}
+
+/** True when the active tab is already on the same host:port as the target. */
+function sameHostAsCurrent(target) {
+  try {
+    const t = new URL(target);
+    const c = new URL(currentTab.url);
+    return t.hostname === c.hostname && t.port === c.port;
+  } catch {
+    return false;
   }
 }
 

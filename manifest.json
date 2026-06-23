@@ -5,6 +5,9 @@
   "description": "Navigate single-page applications directly to any route/URL — with or without a full page reload.",
   "permissions": ["tabs", "activeTab", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_title": "SPA Direct Nav",
     "default_popup": "popup.html",
