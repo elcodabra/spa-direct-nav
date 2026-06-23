@@ -3,9 +3,12 @@ const HISTORY_KEY = "spaDirectNav.history";
 const AUTO_ENABLED_KEY = "spaDirectNav.autoEnabled";
 const AUTO_BLOCK_KEY = "spaDirectNav.autoBlocklist";
 const DEBUG_KEY = "spaDirectNav.debug";
+const API_ROUTES_KEY = "spaDirectNav.apiRoutes";
+const MOCKS_KEY = "spaDirectNav.mocks";
 const MAX_HISTORY = 12;
 
 let currentTab = null;
+let currentOrigin = null;
 
 init();
 
@@ -13,13 +16,17 @@ async function init() {
   currentTab = await getActiveTab();
   if (currentTab?.url) {
     try {
-      $("origin").textContent = new URL(currentTab.url).origin;
+      currentOrigin = new URL(currentTab.url).origin;
+      $("origin").textContent = currentOrigin;
     } catch {
       $("origin").textContent = currentTab.url;
     }
   }
   await renderHistory();
   await initAutoToggle();
+  await initApiRouting();
+  await initMocks();
+  initTabs();
 
   $("go").addEventListener("click", navigate);
   $("useCurrent").addEventListener("click", fillCurrentPath);
@@ -34,6 +41,29 @@ function getActiveTab() {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
   });
+}
+
+/* ---------- tabs ---------- */
+
+function initTabs() {
+  const tabs = [
+    { btn: $("tabNavBtn"), panel: $("tab-nav"), focus: () => $("target").focus() },
+    { btn: $("tabRecentBtn"), panel: $("tab-recent"), focus: () => {} },
+    { btn: $("tabApiBtn"), panel: $("tab-api"), focus: () => !$("apiPrefix").disabled && $("apiPrefix").focus() },
+    { btn: $("tabMockBtn"), panel: $("tab-mock"), focus: () => !$("mockPath").disabled && $("mockPath").focus() },
+  ];
+
+  function select(name) {
+    for (const t of tabs) {
+      const on = t.btn.dataset.tab === name;
+      t.btn.classList.toggle("active", on);
+      t.btn.setAttribute("aria-selected", String(on));
+      t.panel.hidden = !on;
+      if (on) t.focus();
+    }
+  }
+
+  for (const t of tabs) t.btn.addEventListener("click", () => select(t.btn.dataset.tab));
 }
 
 function fillCurrentPath() {
@@ -68,7 +98,15 @@ async function navigate() {
   if (!currentTab?.id) return setStatus("No active tab.", "error");
 
   if (mode === "hard") {
-    chrome.tabs.update(currentTab.id, { url: target }, () => {
+    const tabId = currentTab.id;
+    chrome.tabs.update(tabId, { url: target }, () => {
+      // The page reloads, so toast.js re-installs; fire once it finishes loading.
+      const onDone = (id, info) => {
+        if (id !== tabId || info.status !== "complete") return;
+        chrome.tabs.onUpdated.removeListener(onDone);
+        toastInTab(tabId, "Reloaded —", target);
+      };
+      chrome.tabs.onUpdated.addListener(onDone);
       onNavigated(target, "Reloaded at target.");
     });
     return;
@@ -84,6 +122,7 @@ async function navigate() {
         args: [target],
       });
       if (result && !result.crossOrigin && !result.notMounted) {
+        toastInTab(currentTab.id, "Jumped to", target);
         return onNavigated(target, "SPA route updated (soft).");
       }
       // No live app here (404 shell) or origin drifted — fall through to smart pipeline.
@@ -121,6 +160,32 @@ function sameHostAsCurrent(target) {
 function onNavigated(target, msg) {
   saveHistory(target);
   setStatus(msg, "ok");
+}
+
+/** Path portion of a URL, for compact toast/status text. */
+function shortPath(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search + u.hash || "/";
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Show an in-page confirmation toast in the given tab. Calls window.__spaToast,
+ * which toast.js defines in the shared isolated world; no-ops if it's absent
+ * (e.g. a restricted page) or injection isn't allowed.
+ */
+function toastInTab(tabId, label, target) {
+  const path = shortPath(target);
+  chrome.scripting
+    .executeScript({
+      target: { tabId },
+      func: (m, p) => window.__spaToast && window.__spaToast(m, { path: p }),
+      args: [label + " " + path, path],
+    })
+    .catch(() => {});
 }
 
 /* ---------- auto-recover controls (global + per-host disable) ---------- */
@@ -222,6 +287,234 @@ function softNavigate(target) {
   // Some routers also listen for hashchange.
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   return { crossOrigin: false, pageOrigin: location.origin, targetOrigin: url.origin };
+}
+
+/* ---------- per-site API routing ---------- */
+
+function getApiRoutes() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(API_ROUTES_KEY, (r) => resolve(r[API_ROUTES_KEY] || []));
+  });
+}
+
+function setApiRoutes(routes) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [API_ROUTES_KEY]: routes }, resolve);
+  });
+}
+
+async function initApiRouting() {
+  $("apiSite").textContent = currentOrigin || "this site";
+
+  const addBtn = $("apiAdd");
+  const prefixEl = $("apiPrefix");
+  const targetEl = $("apiTarget");
+
+  // No usable origin (chrome:// etc.) → routing can't apply here.
+  if (!currentOrigin || !/^https?:$/.test(new URL(currentOrigin).protocol)) {
+    prefixEl.disabled = targetEl.disabled = addBtn.disabled = true;
+  }
+
+  addBtn.addEventListener("click", addApiRoute);
+  targetEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addApiRoute();
+  });
+
+  await renderApiRoutes();
+}
+
+async function addApiRoute() {
+  const prefix = $("apiPrefix").value.trim() || "/api";
+  const targetRaw = $("apiTarget").value.trim();
+  if (!currentOrigin) return setStatus("No site for routing here.", "error");
+  if (!/^\//.test(prefix)) return setStatus("Path must start with “/”.", "error");
+
+  let target;
+  try {
+    target = new URL(targetRaw);
+    if (!/^https?:$/.test(target.protocol)) throw new Error();
+  } catch {
+    return setStatus("Enter a full target URL (https://…).", "error");
+  }
+
+  const routes = await getApiRoutes();
+  const route = { id: Date.now(), site: currentOrigin, prefix, target: target.href, enabled: true };
+  // Replace any existing rule with the same site + prefix.
+  const next = routes.filter((r) => !(r.site === route.site && r.prefix === route.prefix));
+  next.push(route);
+  await setApiRoutes(next);
+
+  $("apiTarget").value = "";
+  $("apiPrefix").value = "";
+  setStatus(`Routing ${shortPath(route.site + route.prefix)} → ${target.host}.`, "ok");
+  await renderApiRoutes();
+}
+
+async function removeApiRoute(id) {
+  const routes = await getApiRoutes();
+  await setApiRoutes(routes.filter((r) => r.id !== id));
+  await renderApiRoutes();
+}
+
+async function renderApiRoutes() {
+  const routes = await getApiRoutes();
+  const ul = $("apiList");
+  ul.innerHTML = "";
+
+  if (!routes.length) {
+    const li = document.createElement("li");
+    li.className = "api-empty";
+    li.textContent = "No routes yet.";
+    ul.appendChild(li);
+    return;
+  }
+
+  // Current site first, then the rest, so the relevant rules are on top.
+  const sorted = [...routes].sort((a, b) =>
+    (a.site === currentOrigin ? 0 : 1) - (b.site === currentOrigin ? 0 : 1)
+  );
+
+  for (const r of sorted) {
+    const li = document.createElement("li");
+    li.className = "api-item" + (r.site === currentOrigin ? " here" : "");
+
+    const text = document.createElement("span");
+    text.className = "api-text";
+    const fromHost = (() => {
+      try {
+        return new URL(r.site).host;
+      } catch {
+        return r.site;
+      }
+    })();
+    const toHost = (() => {
+      try {
+        return new URL(r.target).host;
+      } catch {
+        return r.target;
+      }
+    })();
+    text.textContent = `${fromHost}${r.prefix} → ${toHost}`;
+    text.title = `${r.site}${r.prefix}  →  ${r.target}`;
+
+    const del = document.createElement("button");
+    del.className = "api-del";
+    del.textContent = "✕";
+    del.title = "Remove this route";
+    del.addEventListener("click", () => removeApiRoute(r.id));
+
+    li.appendChild(text);
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
+}
+
+/* ---------- mock API ---------- */
+
+function getMocks() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(MOCKS_KEY, (r) => resolve(r[MOCKS_KEY] || []));
+  });
+}
+
+function setMocks(mocks) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [MOCKS_KEY]: mocks }, resolve);
+  });
+}
+
+async function initMocks() {
+  $("mockSite").textContent = currentOrigin || "this site";
+
+  const disabled = !currentOrigin || !/^https?:$/.test(new URL(currentOrigin).protocol);
+  if (disabled) {
+    $("mockPath").disabled = $("mockStatus").disabled = $("mockBody").disabled = $("mockMethod").disabled = $(
+      "mockAdd"
+    ).disabled = true;
+  }
+
+  $("mockAdd").addEventListener("click", addMock);
+  await renderMocks();
+}
+
+async function addMock() {
+  if (!currentOrigin) return setStatus("No site for mocking here.", "error");
+
+  const path = $("mockPath").value.trim();
+  if (!/^\//.test(path)) return setStatus("Path must start with “/”.", "error");
+
+  const status = Number($("mockStatus").value) || 200;
+  if (status < 100 || status > 599) return setStatus("Status must be 100–599.", "error");
+
+  const body = $("mockBody").value;
+  // Warn (don't block) if a JSON-looking body doesn't parse — text/plain mocks are fine too.
+  let contentType = "application/json";
+  if (body.trim() && !/^[\[{]/.test(body.trim())) contentType = "text/plain";
+
+  const method = $("mockMethod").value || "ANY";
+  const mocks = await getMocks();
+  const mock = { id: Date.now(), site: currentOrigin, method, path, status, body, contentType, enabled: true };
+  // Replace an existing mock for the same site + method + path.
+  const next = mocks.filter((m) => !(m.site === mock.site && m.method === mock.method && m.path === mock.path));
+  next.push(mock);
+  await setMocks(next);
+
+  $("mockPath").value = "";
+  $("mockBody").value = "";
+  $("mockStatus").value = "200";
+  setStatus(`Mocking ${method} ${path} → ${status}.`, "ok");
+  await renderMocks();
+}
+
+async function removeMock(id) {
+  const mocks = await getMocks();
+  await setMocks(mocks.filter((m) => m.id !== id));
+  await renderMocks();
+}
+
+async function renderMocks() {
+  const mocks = await getMocks();
+  const ul = $("mockList");
+  ul.innerHTML = "";
+
+  if (!mocks.length) {
+    const li = document.createElement("li");
+    li.className = "api-empty";
+    li.textContent = "No mocks yet.";
+    ul.appendChild(li);
+    return;
+  }
+
+  const sorted = [...mocks].sort((a, b) =>
+    (a.site === currentOrigin ? 0 : 1) - (b.site === currentOrigin ? 0 : 1)
+  );
+
+  for (const m of sorted) {
+    const li = document.createElement("li");
+    li.className = "api-item" + (m.site === currentOrigin ? " here" : "");
+
+    const text = document.createElement("span");
+    text.className = "api-text";
+    const host = (() => {
+      try {
+        return new URL(m.site).host;
+      } catch {
+        return m.site;
+      }
+    })();
+    text.textContent = `${m.method} ${m.path} → ${m.status}`;
+    text.title = `${m.method} ${host}${m.path}  →  ${m.status}\n${(m.body || "").slice(0, 300)}`;
+
+    const del = document.createElement("button");
+    del.className = "api-del";
+    del.textContent = "✕";
+    del.title = "Remove this mock";
+    del.addEventListener("click", () => removeMock(m.id));
+
+    li.appendChild(text);
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
 }
 
 /* ---------- recent history ---------- */

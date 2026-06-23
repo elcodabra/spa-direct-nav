@@ -3,7 +3,7 @@
   "name": "SPA Direct Nav",
   "version": "1.0.0",
   "description": "Navigate single-page applications directly to any route/URL — with or without a full page reload.",
-  "permissions": ["tabs", "activeTab", "scripting", "storage", "webRequest", "webNavigation"],
+  "permissions": ["tabs", "activeTab", "scripting", "storage", "webRequest", "webNavigation", "declarativeNetRequest"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
@@ -11,7 +11,20 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["lib.js", "content.js"],
+      "js": ["mock.js"],
+      "run_at": "document_start",
+      "all_frames": false,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["mock-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["toast.js", "lib.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

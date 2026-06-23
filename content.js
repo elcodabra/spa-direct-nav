@@ -116,6 +116,7 @@
       if (ok && pending !== here) {
         log("mounted — soft-routing to", pending);
         softRoute(pending);
+        if (window.__spaToast) window.__spaToast("Deep link recovered — routed to " + pending, { path: pending });
         sessionStorage.removeItem(ATTEMPT_KEY); // success — reset the loop guard
       } else {
         log("not mounted in time (ok=" + ok + ") — clearing base cache, leaving page");

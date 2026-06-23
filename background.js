@@ -59,6 +59,30 @@ chrome.webNavigation.onBeforeNavigate.addListener((d) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(errKey(tabId)));
 
+/* ---------- per-site API routing (declarativeNetRequest) ---------- */
+
+// Rebuild ALL of our dynamic rules from the saved routes. We own every dynamic
+// rule in this extension, so the simplest correct sync is remove-all + add-fresh
+// (ids are reassigned each time by buildApiRoutingRules).
+async function syncApiRules() {
+  const routes = await new Promise((resolve) =>
+    chrome.storage.local.get(API_ROUTES_KEY, (r) => resolve(r[API_ROUTES_KEY] || []))
+  );
+  const addRules = buildApiRoutingRules(routes, 1);
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: existing.map((rule) => rule.id),
+    addRules,
+  });
+  dlog("API routing: synced", addRules.length, "rules from", routes.length, "route(s)");
+}
+
+chrome.runtime.onInstalled.addListener(() => syncApiRules());
+chrome.runtime.onStartup.addListener(() => syncApiRules());
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[API_ROUTES_KEY]) syncApiRules();
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "smartNav") {
     smartNav(msg.tabId, msg.target)
@@ -86,6 +110,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function smartNav(tabId, target) {
   dlog("smartNav target:", target, "tabId:", tabId);
+  const targetPath = pathOf(target);
   const base = await spaFindServableBase(target, {
     includeFull: true, // the popup target may be directly servable
     onProbe: (c, ok) => dlog("probe", c, "->", ok ? "200" : "not ok"),
@@ -95,12 +120,14 @@ async function smartNav(tabId, target) {
   if (!base) {
     // Nothing on this host responded — just try a plain full load.
     await navigateAndWait(tabId, target);
+    notifyToast(tabId, "Loaded " + targetPath, targetPath);
     return { mode: "hard", base: target, message: "No reachable base found — full load." };
   }
 
   if (sameUrl(base, target)) {
     // Server serves the deep route directly (it has an SPA fallback). Hard load is fine.
     await navigateAndWait(tabId, target);
+    notifyToast(tabId, "Loaded " + targetPath, targetPath);
     return { mode: "hard", base, message: "Server serves it directly — full load." };
   }
 
@@ -108,12 +135,28 @@ async function smartNav(tabId, target) {
   // then route the rest of the way.
   await navigateAndWait(tabId, base);
   const { ready, waitedMs } = await softNavigateInTab(tabId, target);
+  notifyToast(tabId, "Deep link recovered — routed to " + targetPath, targetPath);
   const note = ready ? `app ready in ${waitedMs}ms` : `router not detected after ${waitedMs}ms`;
   return {
     mode: "smart",
     base,
     message: `Loaded ${pathOf(base)} → soft-routed to ${pathOf(target)} (${note}).`,
   };
+}
+
+/**
+ * Fire an in-page confirmation toast in the tab. Runs the call in the shared
+ * isolated world where toast.js has already defined window.__spaToast; a missing
+ * helper (e.g. a restricted page) is a silent no-op.
+ */
+function notifyToast(tabId, message, path) {
+  chrome.scripting
+    .executeScript({
+      target: { tabId },
+      func: (m, p) => window.__spaToast && window.__spaToast(m, { path: p }),
+      args: [message, path || null],
+    })
+    .catch(() => {});
 }
 
 /** Update the tab and resolve once it reports `complete` (or times out). */

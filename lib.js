@@ -84,7 +84,136 @@ function pathOf(url) {
   }
 }
 
+const API_ROUTES_KEY = "spaDirectNav.apiRoutes"; // storage.local: array of {id, site, prefix, target, enabled}
+const MOCKS_KEY = "spaDirectNav.mocks"; // storage.local: array of {id, site, method, path, status, body, contentType, delay, enabled}
+
+/**
+ * Find the first mock that matches a request, or null.
+ *
+ * A mock `{ site, method, path }` matches when the request's origin equals
+ * `site` (when set), the method matches (`ANY`/empty = any), and the request
+ * pathname equals `path` or sits underneath it (segment-aware prefix, so `/api`
+ * matches `/api/users` but NOT `/apixyz`).
+ *
+ * Pure — shared by the unit tests and mirrored by the MAIN-world `mock.js`.
+ *
+ * @param {Array<object>} mocks
+ * @param {string} url - the request URL.
+ * @param {string} [method="GET"]
+ */
+function matchMock(mocks, url, method) {
+  let pathname, origin;
+  try {
+    const u = new URL(url);
+    pathname = u.pathname;
+    origin = u.origin;
+  } catch {
+    return null;
+  }
+  const reqMethod = String(method || "GET").toUpperCase();
+
+  for (const m of mocks || []) {
+    if (!m || m.enabled === false) continue;
+    if (m.site && m.site !== origin) continue;
+    if (m.method && m.method !== "ANY" && m.method.toUpperCase() !== reqMethod) continue;
+
+    const p = "/" + String(m.path || "").replace(/^\/+/, "");
+    if (p === "/") continue; // an empty path would match the whole origin
+    const base = p.endsWith("/") ? p.slice(0, -1) : p;
+    if (pathname === base || pathname.startsWith(base + "/")) return m;
+  }
+  return null;
+}
+
+/** Escape a string for safe literal use inside a regular expression. */
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Build declarativeNetRequest dynamic rules for the per-site API-routing feature.
+ *
+ * For each enabled route `{ site, prefix, target }` it emits TWO rules:
+ *   1. redirect — `<site><prefix>/rest…`  →  `<target>/rest…`  (the prefix is
+ *      stripped; query and the remaining path are preserved via a capture group).
+ *   2. modifyHeaders — adds permissive `Access-Control-*` headers to the target's
+ *      responses for requests the site initiated, so the now-cross-origin call
+ *      isn't blocked by CORS.
+ *
+ * Pure (no `chrome.*`), so the regex/strip logic is unit-testable under Node.
+ *
+ * @param {Array<{site:string, prefix:string, target:string, enabled?:boolean}>} routes
+ * @param {number} [startId=1] - first rule id to allocate (two ids consumed per route).
+ * @returns {Array<object>} dynamic-rule objects ready for `updateDynamicRules`.
+ */
+function buildApiRoutingRules(routes, startId) {
+  let id = startId || 1;
+  const rules = [];
+  const RESOURCE_TYPES = ["xmlhttprequest", "other", "websocket"];
+
+  for (const r of routes || []) {
+    if (!r || r.enabled === false) continue;
+
+    let site, target;
+    try {
+      site = new URL(r.site);
+      target = new URL(r.target);
+    } catch {
+      continue; // skip malformed entries instead of poisoning the whole rule set
+    }
+
+    const prefix = "/" + String(r.prefix || "").replace(/^\/+|\/+$/g, ""); // normalize to "/api"
+    if (prefix === "/") continue; // an empty prefix would capture the whole origin
+
+    const origin = site.origin; // e.g. https://app.example.com
+    const targetBase = target.origin + target.pathname.replace(/\/+$/, ""); // drop trailing slash
+
+    rules.push({
+      id: id++,
+      priority: 1,
+      action: { type: "redirect", redirect: { regexSubstitution: targetBase + "\\1" } },
+      condition: {
+        // ^<origin>/api(/rest…)?$  — group 1 is the remainder (path + query), or empty.
+        regexFilter: "^" + escapeRegExp(origin) + escapeRegExp(prefix) + "(/.*)?$",
+        resourceTypes: RESOURCE_TYPES,
+      },
+    });
+
+    rules.push({
+      id: id++,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        responseHeaders: [
+          { header: "access-control-allow-origin", operation: "set", value: origin },
+          { header: "access-control-allow-credentials", operation: "set", value: "true" },
+          { header: "access-control-allow-methods", operation: "set", value: "GET, POST, PUT, PATCH, DELETE, OPTIONS" },
+          { header: "access-control-allow-headers", operation: "set", value: "Content-Type, Authorization, X-Requested-With" },
+        ],
+      },
+      condition: {
+        requestDomains: [target.hostname],
+        initiatorDomains: [site.hostname],
+        resourceTypes: RESOURCE_TYPES,
+      },
+    });
+  }
+  return rules;
+}
+
 // Node-only export for unit tests; skipped in the browser/worker (module is undefined).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { spaIsServable, spaFindServableBase, sameUrl, normalizeUrl, pathOf, SPA_DEBUG_KEY };
+  module.exports = {
+    spaIsServable,
+    spaFindServableBase,
+    sameUrl,
+    normalizeUrl,
+    pathOf,
+    escapeRegExp,
+    buildApiRoutingRules,
+    matchMock,
+    SPA_DEBUG_KEY,
+    API_ROUTES_KEY,
+    MOCKS_KEY,
+  };
 }

@@ -7,6 +7,10 @@ address bar. No more clicking through menus to reach a page you already have the
 It also fixes the classic single-page-app annoyance where **pasting or refreshing a deep
 link shows a blank page / 404** (common on preview and feature-branch deploys).
 
+<p align="center">
+  <img src="docs/autofix.png" alt="Without the extension a deep link 404s; with SPA Direct Nav the same URL is recovered automatically" width="900" />
+</p>
+
 ---
 
 ## Quick start
@@ -21,11 +25,19 @@ link shows a blank page / 404** (common on preview and feature-branch deploys).
 That's it — it's now active on every site. The address-bar auto-fix works with no further
 setup.
 
+<p align="center">
+  <img src="docs/install.png" alt="chrome://extensions with Developer mode on, the Load unpacked button, and the loaded SPA Direct Nav card" width="760" />
+</p>
+
 ---
 
 ## How to use it
 
 ### A. Jump to a route from the popup
+
+<p align="center">
+  <img src="docs/popup.png" alt="SPA Direct Nav popup, Navigate tab: tab bar (Navigate, Recent, API routing, Mock API), a path input, Soft/Hard mode, Go and Current buttons, and the auto-fix settings" width="360" />
+</p>
 
 1. Open the app you're working in (any SPA).
 2. Click the **SPA Direct Nav** toolbar icon.
@@ -56,6 +68,63 @@ the right route**. You don't have to open the popup.
 
 This is **on by default for every site** and only kicks in when a page actually fails to
 load — normal pages are never touched.
+
+Whenever the extension recovers a deep link — or navigates for you from the popup — a brief
+**confirmation toast** appears at the bottom of the page (e.g. *“Deep link recovered — routed
+to /dashboard/reports/q3”*), so you always know it acted.
+
+### C. Route an API path to another server
+
+<p align="center">
+  <img src="docs/api-routing.png" alt="The API routing tab: a prefix → target form and a per-site list of routes" width="360" />
+</p>
+
+Open the popup, switch to the **API routing** tab, and add a rule for the site you're on:
+
+```
+/api   →   https://my-api.dev
+```
+
+From then on, every request that page makes under `/api` is **redirected to your target
+server, with the `/api` prefix stripped** — so `…/api/users?page=2` becomes
+`https://my-api.dev/users?page=2`. Useful for pointing a deployed front-end at a local or
+staging backend without touching its code or running a dev proxy.
+
+- Rules are **per-site** (scoped to the exact origin shown) and listed under the form; the
+  **✕** removes one. Adding a rule for a path that already has one replaces it.
+- Because the target is usually a different origin, the redirected call would normally be
+  blocked by **CORS** — so the extension automatically adds permissive
+  `Access-Control-Allow-Origin` / `-Credentials` response headers for you.
+- **Caveat:** for *non-simple* requests (custom headers, `PUT`/`DELETE`, JSON bodies) the
+  browser sends a preflight `OPTIONS` first. Your target server must answer that `OPTIONS`
+  with a 2xx — the extension can add headers but can't invent a response. Simple `GET`/`POST`
+  calls work with no server changes.
+
+### D. Mock an API response
+
+<p align="center">
+  <img src="docs/mock.png" alt="The Mock API tab: method, path, status, and a JSON response-body editor, with a list of saved mocks" width="360" />
+</p>
+
+Open the popup, switch to the **Mock API** tab, and add a mock for the site you're on:
+choose a method (or **ANY**), a path, a status code, and a response body.
+
+```
+GET  /api/users   200   { "users": [ … ] }
+```
+
+From then on, any `fetch` or `XMLHttpRequest` that page makes to a matching path is
+answered **directly from your canned response — no network request is made**. Great for
+developing against an endpoint that doesn't exist yet, forcing an error state (`401`/`500`),
+or freezing flaky data.
+
+- Mocks are **per-site** and match by method + path (segment-aware prefix, so `/api` covers
+  `/api/users`). A JSON-looking body is served as `application/json`, otherwise `text/plain`.
+- Because the response is fabricated **inside the page**, there's no cross-origin call and so
+  **no CORS** to worry about — this works where API routing's redirect would need headers.
+- **Caveat:** the mocker installs at `document_start`, but it reads your mock list
+  asynchronously — a request fired in the very first tick of page load may slip through
+  before the list arrives. Reload once after adding a mock if that happens.
 
 ### Settings (in the popup)
 
@@ -121,6 +190,9 @@ debug logging is **off by default** so your browsing isn't printed anywhere.
 | `popup.html` / `popup.css` / `popup.js` | Popup UI and the in-place soft path |
 | `background.js` | Service worker: smart-nav pipeline + `webRequest` error tracking |
 | `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
+| `toast.js` | In-page confirmation toast (`window.__spaToast`) shown on every extension navigation |
+| `mock.js` | MAIN-world patch of `fetch`/`XMLHttpRequest` that answers mocked requests |
+| `mock-bridge.js` | Isolated-world bridge: reads saved mocks from storage → posts them to `mock.js` |
 | `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, …) |
 | `test/` | Node unit tests for `lib.js` |
 | `icons/` | Toolbar icons |
@@ -137,7 +209,8 @@ npm test     # or: node --test  (Node 18+, no dependencies)
 - `scripting` + `host_permissions: <all_urls>` — run the soft-navigation routine in pages.
 - `webRequest` — observe main-frame HTTP status so auto-fix only fires on real errors.
 - `webNavigation` — invalidate stale error state when a new navigation starts.
-- `storage` — keep settings and the recent list; transient error state uses `storage.session`.
+- `declarativeNetRequest` — apply the per-site API-routing redirect + CORS-header rules.
+- `storage` — keep settings, the recent list, and API routes; transient error state uses `storage.session`.
 
 ### Limits
 
@@ -145,3 +218,6 @@ npm test     # or: node --test  (Node 18+, no dependencies)
 - Recovery attempts **one** redirect per chain (a `sessionStorage` guard prevents loops);
   if the chosen base also errors, the page is left as-is.
 - It can't run on restricted pages (`chrome://`, the Chrome Web Store, etc.).
+- API routing redirects the request **client-side**, so the target origin sees the call as
+  cross-origin. The extension injects CORS response headers, but it cannot fabricate a
+  preflight `OPTIONS` response — the target must answer `OPTIONS` for non-simple requests.
