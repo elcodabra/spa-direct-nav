@@ -7,6 +7,10 @@ address bar. No more clicking through menus to reach a page you already have the
 It also fixes the classic single-page-app annoyance where **pasting or refreshing a deep
 link shows a blank page / 404** (common on preview and feature-branch deploys).
 
+<p align="center">
+  <img src="docs/autofix.png" alt="Without the extension a deep link 404s; with SPA Direct Nav the same URL is recovered automatically" width="900" />
+</p>
+
 ---
 
 ## Quick start
@@ -21,11 +25,19 @@ link shows a blank page / 404** (common on preview and feature-branch deploys).
 That's it — it's now active on every site. The address-bar auto-fix works with no further
 setup.
 
+<p align="center">
+  <img src="docs/install.png" alt="chrome://extensions with Developer mode on, the Load unpacked button, and the loaded SPA Direct Nav card" width="760" />
+</p>
+
 ---
 
 ## How to use it
 
 ### A. Jump to a route from the popup
+
+<p align="center">
+  <img src="docs/popup.png" alt="SPA Direct Nav popup: path input, Soft/Hard mode, Go and Current buttons, settings checkboxes, and a recent destinations list" width="360" />
+</p>
 
 1. Open the app you're working in (any SPA).
 2. Click the **SPA Direct Nav** toolbar icon.
