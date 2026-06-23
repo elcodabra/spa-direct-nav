@@ -21,6 +21,15 @@ the active tab there in one of two modes:
     8s cap), then soft-routes the rest of the way to the full URL.
 - **Hard** — sets the tab URL directly, performing a normal full page load at the target.
 
+### Address-bar auto-fix (no popup needed)
+
+Tick **"Auto-fix deep links on \<host\>"** in the popup to enable a content script on
+that host. From then on, when you **paste a deep URL into the address bar** (or refresh,
+or open a shared link) and the server 404s it, the content script detects that no app
+mounted, walks up to a servable base, reloads there, and soft-routes back to your deep
+URL automatically. Because it runs in the page, its `fetch` probes are same-origin and
+carry your auth cookies. Enabled hosts are remembered (`chrome.storage.local`).
+
 Other niceties:
 
 - **Current** button fills the box with the active page's path.
@@ -42,6 +51,7 @@ Other niceties:
 | `popup.html` / `popup.css` | Popup UI |
 | `popup.js` | Resolves the target, runs the in-place soft path, manages recent history |
 | `background.js` | Service worker: probe-and-strip base finder + cold soft-route pipeline |
+| `content.js` | Address-bar auto-fix on enabled hosts (detect 404 shell → recover) |
 | `icons/` | Toolbar icons (16/48/128) |
 
 ## Permissions

@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const HISTORY_KEY = "spaDirectNav.history";
+const AUTO_HOSTS_KEY = "spaDirectNav.autoHosts";
 const MAX_HISTORY = 12;
 
 let currentTab = null;
@@ -16,6 +17,7 @@ async function init() {
     }
   }
   await renderHistory();
+  await initAutoToggle();
 
   $("go").addEventListener("click", navigate);
   $("useCurrent").addEventListener("click", fillCurrentPath);
@@ -117,6 +119,47 @@ function sameHostAsCurrent(target) {
 function onNavigated(target, msg) {
   saveHistory(target);
   setStatus(msg, "ok");
+}
+
+/* ---------- auto-recover toggle (per host) ---------- */
+
+function getAutoHosts() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([AUTO_HOSTS_KEY], (r) => resolve(r[AUTO_HOSTS_KEY] || []));
+  });
+}
+
+async function initAutoToggle() {
+  const box = $("autoHost");
+  let host = "";
+  try {
+    host = new URL(currentTab.url).hostname;
+  } catch {
+    /* non-web page */
+  }
+
+  if (!host) {
+    $("autoHostName").textContent = "this host";
+    box.disabled = true;
+    return;
+  }
+
+  $("autoHostName").textContent = host;
+  const hosts = await getAutoHosts();
+  box.checked = hosts.includes(host);
+
+  box.addEventListener("change", async () => {
+    const current = await getAutoHosts();
+    const next = box.checked
+      ? [...new Set([...current, host])]
+      : current.filter((h) => h !== host);
+    chrome.storage.local.set({ [AUTO_HOSTS_KEY]: next }, () => {
+      setStatus(
+        box.checked ? `Auto-fix enabled on ${host}.` : `Auto-fix disabled on ${host}.`,
+        "ok"
+      );
+    });
+  });
 }
 
 /**
