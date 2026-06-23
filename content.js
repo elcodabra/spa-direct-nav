@@ -12,6 +12,7 @@
  * fetch() here is same-origin, so auth cookies are sent normally.
  */
 (function () {
+  console.log("[SPA Direct Nav · content] injected on", location.href);
   if (window.top !== window) return; // top frame only
 
   const ENABLED_KEY = "spaDirectNav.autoEnabled"; // default true
