@@ -4,6 +4,7 @@ const AUTO_ENABLED_KEY = "spaDirectNav.autoEnabled";
 const AUTO_BLOCK_KEY = "spaDirectNav.autoBlocklist";
 const DEBUG_KEY = "spaDirectNav.debug";
 const API_ROUTES_KEY = "spaDirectNav.apiRoutes";
+const MOCKS_KEY = "spaDirectNav.mocks";
 const MAX_HISTORY = 12;
 
 let currentTab = null;
@@ -24,6 +25,7 @@ async function init() {
   await renderHistory();
   await initAutoToggle();
   await initApiRouting();
+  await initMocks();
   initTabs();
 
   $("go").addEventListener("click", navigate);
@@ -46,8 +48,9 @@ function getActiveTab() {
 function initTabs() {
   const tabs = [
     { btn: $("tabNavBtn"), panel: $("tab-nav"), focus: () => $("target").focus() },
-    { btn: $("tabApiBtn"), panel: $("tab-api"), focus: () => !$("apiPrefix").disabled && $("apiPrefix").focus() },
     { btn: $("tabRecentBtn"), panel: $("tab-recent"), focus: () => {} },
+    { btn: $("tabApiBtn"), panel: $("tab-api"), focus: () => !$("apiPrefix").disabled && $("apiPrefix").focus() },
+    { btn: $("tabMockBtn"), panel: $("tab-mock"), focus: () => !$("mockPath").disabled && $("mockPath").focus() },
   ];
 
   function select(name) {
@@ -399,6 +402,114 @@ async function renderApiRoutes() {
     del.textContent = "✕";
     del.title = "Remove this route";
     del.addEventListener("click", () => removeApiRoute(r.id));
+
+    li.appendChild(text);
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
+}
+
+/* ---------- mock API ---------- */
+
+function getMocks() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(MOCKS_KEY, (r) => resolve(r[MOCKS_KEY] || []));
+  });
+}
+
+function setMocks(mocks) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [MOCKS_KEY]: mocks }, resolve);
+  });
+}
+
+async function initMocks() {
+  $("mockSite").textContent = currentOrigin || "this site";
+
+  const disabled = !currentOrigin || !/^https?:$/.test(new URL(currentOrigin).protocol);
+  if (disabled) {
+    $("mockPath").disabled = $("mockStatus").disabled = $("mockBody").disabled = $("mockMethod").disabled = $(
+      "mockAdd"
+    ).disabled = true;
+  }
+
+  $("mockAdd").addEventListener("click", addMock);
+  await renderMocks();
+}
+
+async function addMock() {
+  if (!currentOrigin) return setStatus("No site for mocking here.", "error");
+
+  const path = $("mockPath").value.trim();
+  if (!/^\//.test(path)) return setStatus("Path must start with “/”.", "error");
+
+  const status = Number($("mockStatus").value) || 200;
+  if (status < 100 || status > 599) return setStatus("Status must be 100–599.", "error");
+
+  const body = $("mockBody").value;
+  // Warn (don't block) if a JSON-looking body doesn't parse — text/plain mocks are fine too.
+  let contentType = "application/json";
+  if (body.trim() && !/^[\[{]/.test(body.trim())) contentType = "text/plain";
+
+  const method = $("mockMethod").value || "ANY";
+  const mocks = await getMocks();
+  const mock = { id: Date.now(), site: currentOrigin, method, path, status, body, contentType, enabled: true };
+  // Replace an existing mock for the same site + method + path.
+  const next = mocks.filter((m) => !(m.site === mock.site && m.method === mock.method && m.path === mock.path));
+  next.push(mock);
+  await setMocks(next);
+
+  $("mockPath").value = "";
+  $("mockBody").value = "";
+  $("mockStatus").value = "200";
+  setStatus(`Mocking ${method} ${path} → ${status}.`, "ok");
+  await renderMocks();
+}
+
+async function removeMock(id) {
+  const mocks = await getMocks();
+  await setMocks(mocks.filter((m) => m.id !== id));
+  await renderMocks();
+}
+
+async function renderMocks() {
+  const mocks = await getMocks();
+  const ul = $("mockList");
+  ul.innerHTML = "";
+
+  if (!mocks.length) {
+    const li = document.createElement("li");
+    li.className = "api-empty";
+    li.textContent = "No mocks yet.";
+    ul.appendChild(li);
+    return;
+  }
+
+  const sorted = [...mocks].sort((a, b) =>
+    (a.site === currentOrigin ? 0 : 1) - (b.site === currentOrigin ? 0 : 1)
+  );
+
+  for (const m of sorted) {
+    const li = document.createElement("li");
+    li.className = "api-item" + (m.site === currentOrigin ? " here" : "");
+
+    const text = document.createElement("span");
+    text.className = "api-text";
+    const host = (() => {
+      try {
+        return new URL(m.site).host;
+      } catch {
+        return m.site;
+      }
+    })();
+    text.textContent = `${m.method} ${m.path} → ${m.status}`;
+    text.title = `${m.method} ${host}${m.path}  →  ${m.status}\n${(m.body || "").slice(0, 300)}`;
+
+    const del = document.createElement("button");
+    del.className = "api-del";
+    del.textContent = "✕";
+    del.title = "Remove this mock";
+    del.addEventListener("click", () => removeMock(m.id));
 
     li.appendChild(text);
     li.appendChild(del);

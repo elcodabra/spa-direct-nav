@@ -170,9 +170,10 @@ button.link {
   border: none;
   background: none;
   color: var(--muted);
-  padding: 7px 10px;
+  padding: 7px 7px;
   margin-bottom: -1px; /* sit the active underline on the row border */
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
   border-bottom: 2px solid transparent;
   border-radius: 0;
 }
@@ -251,6 +252,44 @@ button.link {
 .api-del:hover { color: #ff7a7a; }
 
 .api-empty { padding: 4px 8px; font-size: 11px; color: var(--muted); }
+
+/* ---------- mock form ---------- */
+
+.mock-form { margin-bottom: 8px; }
+
+.mock-row { display: flex; gap: 6px; margin-bottom: 6px; }
+
+.mock-row select,
+.mock-row input {
+  min-width: 0;
+  padding: 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+#mockMethod { flex: 0 0 68px; }
+#mockPath { flex: 1; }
+#mockStatus { flex: 0 0 52px; text-align: center; }
+
+#mockBody {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+  margin-bottom: 6px;
+}
+#mockBody:focus, .mock-row :focus { outline: none; border-color: var(--accent); }
+
+.mock-form button { width: 100%; }
+.mock-form :disabled { opacity: 0.5; cursor: not-allowed; }
+
+#mockList { list-style: none; margin: 0; padding: 0; }
 
 .status {
   margin: 10px 0 0;

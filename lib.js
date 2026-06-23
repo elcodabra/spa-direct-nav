@@ -85,6 +85,45 @@ function pathOf(url) {
 }
 
 const API_ROUTES_KEY = "spaDirectNav.apiRoutes"; // storage.local: array of {id, site, prefix, target, enabled}
+const MOCKS_KEY = "spaDirectNav.mocks"; // storage.local: array of {id, site, method, path, status, body, contentType, delay, enabled}
+
+/**
+ * Find the first mock that matches a request, or null.
+ *
+ * A mock `{ site, method, path }` matches when the request's origin equals
+ * `site` (when set), the method matches (`ANY`/empty = any), and the request
+ * pathname equals `path` or sits underneath it (segment-aware prefix, so `/api`
+ * matches `/api/users` but NOT `/apixyz`).
+ *
+ * Pure — shared by the unit tests and mirrored by the MAIN-world `mock.js`.
+ *
+ * @param {Array<object>} mocks
+ * @param {string} url - the request URL.
+ * @param {string} [method="GET"]
+ */
+function matchMock(mocks, url, method) {
+  let pathname, origin;
+  try {
+    const u = new URL(url);
+    pathname = u.pathname;
+    origin = u.origin;
+  } catch {
+    return null;
+  }
+  const reqMethod = String(method || "GET").toUpperCase();
+
+  for (const m of mocks || []) {
+    if (!m || m.enabled === false) continue;
+    if (m.site && m.site !== origin) continue;
+    if (m.method && m.method !== "ANY" && m.method.toUpperCase() !== reqMethod) continue;
+
+    const p = "/" + String(m.path || "").replace(/^\/+/, "");
+    if (p === "/") continue; // an empty path would match the whole origin
+    const base = p.endsWith("/") ? p.slice(0, -1) : p;
+    if (pathname === base || pathname.startsWith(base + "/")) return m;
+  }
+  return null;
+}
 
 /** Escape a string for safe literal use inside a regular expression. */
 function escapeRegExp(s) {
@@ -172,7 +211,9 @@ if (typeof module !== "undefined" && module.exports) {
     pathOf,
     escapeRegExp,
     buildApiRoutingRules,
+    matchMock,
     SPA_DEBUG_KEY,
     API_ROUTES_KEY,
+    MOCKS_KEY,
   };
 }

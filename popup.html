@@ -17,6 +17,7 @@
       <button class="tab active" id="tabNavBtn" data-tab="nav" role="tab" aria-selected="true">Navigate</button>
       <button class="tab" id="tabRecentBtn" data-tab="recent" role="tab" aria-selected="false">Recent</button>
       <button class="tab" id="tabApiBtn" data-tab="api" role="tab" aria-selected="false">API routing</button>
+      <button class="tab" id="tabMockBtn" data-tab="mock" role="tab" aria-selected="false">Mock API</button>
     </nav>
 
     <div class="tabpanel" id="tab-nav" role="tabpanel">
@@ -72,6 +73,27 @@
         <button id="apiAdd" class="ghost">Add</button>
       </div>
       <ul id="apiList"></ul>
+    </div>
+
+    <div class="tabpanel" id="tab-mock" role="tabpanel" hidden>
+      <p class="apis-on">On <b id="mockSite">this site</b>, return a canned response for a path — no network call.</p>
+      <div class="mock-form">
+        <div class="mock-row">
+          <select id="mockMethod" title="HTTP method to match">
+            <option value="ANY">ANY</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <input id="mockPath" type="text" placeholder="/api/users" autocomplete="off" spellcheck="false" />
+          <input id="mockStatus" type="number" min="100" max="599" value="200" title="Response status" />
+        </div>
+        <textarea id="mockBody" rows="4" placeholder='{"ok": true}' spellcheck="false"></textarea>
+        <button id="mockAdd" class="ghost">Add mock</button>
+      </div>
+      <ul id="mockList"></ul>
     </div>
 
     <div class="tabpanel" id="tab-recent" role="tabpanel" hidden>

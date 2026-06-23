@@ -96,6 +96,28 @@ staging backend without touching its code or running a dev proxy.
   with a 2xx — the extension can add headers but can't invent a response. Simple `GET`/`POST`
   calls work with no server changes.
 
+### D. Mock an API response
+
+Open the popup, switch to the **Mock API** tab, and add a mock for the site you're on:
+choose a method (or **ANY**), a path, a status code, and a response body.
+
+```
+GET  /api/users   200   { "users": [ … ] }
+```
+
+From then on, any `fetch` or `XMLHttpRequest` that page makes to a matching path is
+answered **directly from your canned response — no network request is made**. Great for
+developing against an endpoint that doesn't exist yet, forcing an error state (`401`/`500`),
+or freezing flaky data.
+
+- Mocks are **per-site** and match by method + path (segment-aware prefix, so `/api` covers
+  `/api/users`). A JSON-looking body is served as `application/json`, otherwise `text/plain`.
+- Because the response is fabricated **inside the page**, there's no cross-origin call and so
+  **no CORS** to worry about — this works where API routing's redirect would need headers.
+- **Caveat:** the mocker installs at `document_start`, but it reads your mock list
+  asynchronously — a request fired in the very first tick of page load may slip through
+  before the list arrives. Reload once after adding a mock if that happens.
+
 ### Settings (in the popup)
 
 - **Auto-fix deep links on all sites** — master on/off for the address-bar fixing (on by default).
@@ -161,6 +183,8 @@ debug logging is **off by default** so your browsing isn't printed anywhere.
 | `background.js` | Service worker: smart-nav pipeline + `webRequest` error tracking |
 | `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
 | `toast.js` | In-page confirmation toast (`window.__spaToast`) shown on every extension navigation |
+| `mock.js` | MAIN-world patch of `fetch`/`XMLHttpRequest` that answers mocked requests |
+| `mock-bridge.js` | Isolated-world bridge: reads saved mocks from storage → posts them to `mock.js` |
 | `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, …) |
 | `test/` | Node unit tests for `lib.js` |
 | `icons/` | Toolbar icons |

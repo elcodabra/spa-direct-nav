@@ -11,6 +11,19 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "js": ["mock.js"],
+      "run_at": "document_start",
+      "all_frames": false,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["mock-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
       "js": ["toast.js", "lib.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
