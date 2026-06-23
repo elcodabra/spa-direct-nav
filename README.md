@@ -63,8 +63,9 @@ Other niceties:
 | `manifest.json` | MV3 manifest, permissions, action/popup wiring |
 | `popup.html` / `popup.css` | Popup UI |
 | `popup.js` | Resolves the target, runs the in-place soft path, manages recent history |
-| `background.js` | Service worker: probe-and-strip base finder + cold soft-route pipeline |
-| `content.js` | Address-bar auto-fix on enabled hosts (detect 404 shell → recover) |
+| `background.js` | Service worker: smart-nav pipeline, webRequest error tracking |
+| `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
+| `lib.js` | Shared `spaFindServableBase` used by both `background.js` and `content.js` |
 | `icons/` | Toolbar icons (16/48/128) |
 
 ## Permissions

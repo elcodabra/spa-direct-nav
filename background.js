@@ -10,6 +10,8 @@
  * the popup closing.
  */
 
+importScripts("lib.js"); // spaFindServableBase / spaIsServable
+
 const NAV_TIMEOUT_MS = 20000; // safety cap on waiting for a tab to finish loading
 const READY_TIMEOUT_MS = 8000; // max time to poll for the SPA router to mount
 const READY_POLL_MS = 50; // how often to re-check readiness inside the page
@@ -79,7 +81,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function smartNav(tabId, target) {
   console.log("[SPA Direct Nav] smartNav target:", target, "tabId:", tabId);
-  const base = await findServableBase(target);
+  const base = await spaFindServableBase(target, {
+    includeFull: true, // the popup target may be directly servable
+    onProbe: (c, ok) => console.log("[SPA Direct Nav] probe", c, "->", ok ? "200" : "not ok"),
+  });
   console.log("[SPA Direct Nav] servable base:", base);
 
   if (!base) {
@@ -104,49 +109,6 @@ async function smartNav(tabId, target) {
     base,
     message: `Loaded ${pathOf(base)} → soft-routed to ${pathOf(target)} (${note}).`,
   };
-}
-
-/**
- * Strip path segments from the end of `target` until the server returns a
- * success status. Returns the deepest servable URL, or null if none respond.
- */
-async function findServableBase(target) {
-  const u = new URL(target);
-  const segs = u.pathname.split("/").filter(Boolean);
-
-  for (let i = segs.length; i >= 0; i--) {
-    let candidate;
-    if (i === segs.length) {
-      // Full target — keep the query so we test exactly what was asked for.
-      candidate = u.origin + u.pathname + u.search;
-    } else if (i === 0) {
-      candidate = u.origin + "/";
-    } else {
-      candidate = u.origin + "/" + segs.slice(0, i).join("/") + "/";
-    }
-
-    const ok = await isServable(candidate);
-    console.log("[SPA Direct Nav] probe", candidate, "->", ok ? "200" : "not ok");
-    if (ok) {
-      return i === segs.length ? target : candidate;
-    }
-  }
-  return null;
-}
-
-/** True if the URL responds with a 2xx (cookies included, for auth-gated dev deploys). */
-async function isServable(url) {
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      redirect: "follow",
-      credentials: "include",
-      cache: "no-store",
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 /** Update the tab and resolve once it reports `complete` (or times out). */

@@ -50,15 +50,6 @@
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   }
 
-  async function isServable(url) {
-    try {
-      const res = await fetch(url, { method: "GET", redirect: "follow", cache: "no-store" });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  }
-
   // Fetch a candidate base and check that it looks like an SPA shell, so we never
   // hijack a normal multi-page site's 404 into a confusing redirect.
   async function looksLikeSpa(url) {
@@ -74,17 +65,6 @@
     } catch {
       return false;
     }
-  }
-
-  async function findServableBase() {
-    const u = new URL(location.href);
-    const segs = u.pathname.split("/").filter(Boolean);
-    for (let i = segs.length - 1; i >= 0; i--) {
-      const candidate =
-        i === 0 ? u.origin + "/" : u.origin + "/" + segs.slice(0, i).join("/") + "/";
-      if (await isServable(candidate)) return candidate;
-    }
-    return null;
   }
 
   function hostBlocked(list) {
@@ -156,7 +136,10 @@
       return log("already attempted a recovery redirect — bailing to avoid a loop");
     }
 
-    const base = await findServableBase();
+    const base = await spaFindServableBase(location.href, {
+      includeFull: false, // page already errored — no point retesting the full URL
+      onProbe: (c, ok) => log("probe", c, "->", ok ? "200" : "not ok"),
+    });
     log("servable base:", base);
     if (!base || new URL(base).pathname === location.pathname) return log("no usable base — give up");
     if (!(await looksLikeSpa(base))) return log("base is not an SPA shell — leave 404 as-is");
