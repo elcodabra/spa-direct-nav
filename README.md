@@ -1,104 +1,147 @@
 # SPA Direct Nav
 
-A Chrome extension (Manifest V3) for jumping straight to any route in a single-page
-application — without hunting through the app's UI to get there.
+A Chrome extension that lets you jump **straight to any route** in a single-page app
+(React, Vue, Angular, …) — by typing the path, or just by pasting a deep link into the
+address bar. No more clicking through menus to reach a page you already have the URL for.
 
-## What it does
+It also fixes the classic single-page-app annoyance where **pasting or refreshing a deep
+link shows a blank page / 404** (common on preview and feature-branch deploys).
 
-Type a **path** (`/dashboard/settings`) or a **full URL** into the popup and navigate
-the active tab there in one of two modes:
+---
 
-- **Soft** — updates the SPA route **without a full reload**:
-  - If you're already on the target host, it calls the History API in place
-    (`pushState` + synthetic `popstate`/`hashchange`) so the router (React Router,
-    Vue Router, Angular, …) re-renders instantly.
-  - For a **cold deep-link** (a different tab, or a server that 404s the deep route
-    on a fresh GET — common with feature-branch/preview deploys), it runs a
-    **probe-and-strip** pipeline in the background worker: it walks up the path
-    (`/a/b/c` → `/a/b/` → `/a/` → `/`), finds the deepest URL the server actually
-    serves (the app shell), hard-loads that, **polls in-page until the router
-    actually mounts** (framework markers, with a rendered-content fallback and an
-    8s cap), then soft-routes the rest of the way to the full URL.
-- **Hard** — sets the tab URL directly, performing a normal full page load at the target.
+## Quick start
 
-### Address-bar auto-fix (universal, no popup needed)
+1. **Get the code** — download or clone this folder (`spa-direct-nav`) to your computer.
+2. Open **`chrome://extensions`** in Chrome.
+3. Turn on **Developer mode** (toggle, top-right).
+4. Click **Load unpacked** and select the `spa-direct-nav` folder.
+5. Click the **puzzle-piece icon** in the toolbar and **pin** "SPA Direct Nav" so its icon
+   is always visible.
 
-**On by default for all sites.** When you **paste a deep URL into the address bar**
-(or refresh, or open a shared link) and the server returns a 404, the extension fixes
-it automatically — no popup interaction.
+That's it — it's now active on every site. The address-bar auto-fix works with no further
+setup.
 
-How it stays safe across every site:
+---
 
-1. The background worker observes main-frame responses via `webRequest` and remembers
-   when a navigation returned a 4xx/5xx.
-2. The content script only attempts recovery when the background confirms **this exact
-   load was an HTTP error** — so normal pages cost almost nothing and aren't touched.
-3. Before redirecting, it verifies the servable base is actually an **SPA shell**
-   (an empty `#root`/`#app`/`#__next` mount, `data-reactroot`, or `ng-version`), so a
-   genuine 404 on a non-SPA site is left exactly as the server returned it.
-4. It then walks up to that base, reloads, and soft-routes (`pushState`) back to your
-   deep URL. `fetch` probes run in the page → same-origin → your auth cookies are sent.
+## How to use it
 
-Controls in the popup:
-- **Auto-fix deep links on all sites** — global on/off (default on).
-- **Disable on \<host\>** — per-host opt-out (blocklist).
-- **Debug logging** — off by default; turn on to print `[SPA Direct Nav]` diagnostics to
-  the page console (content script) and the service-worker console (background).
+### A. Jump to a route from the popup
 
-Other niceties:
+1. Open the app you're working in (any SPA).
+2. Click the **SPA Direct Nav** toolbar icon.
+3. Type either:
+   - a **path** — `/dashboard/settings`, or
+   - a **full URL** — `https://app.example.com/dashboard/settings`
+4. Press **Go** (or hit Enter).
 
-- **Current** button fills the box with the active page's path.
-- **Recent** list remembers your last navigations (stored locally) for one-click repeat.
-- Paths resolve against the active tab's origin, so you rarely need to type the host.
+Buttons in the popup:
 
-## Install (unpacked)
+- **Go** — navigate to what you typed.
+- **Current** — fills the box with the current page's path (handy to tweak one segment).
+- **Recent** — your last destinations; click any to go there again.
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode** (top right).
-3. Click **Load unpacked** and select this folder (`spa-direct-nav`).
-4. Pin the extension and click its icon on any SPA.
+Two navigation modes (radio buttons):
 
-## Files
+| Mode | What it does | When to use |
+| --- | --- | --- |
+| **Soft** *(default)* | Changes the route **without reloading** the page (instant). | Normal use — staying inside the same app. |
+| **Hard** | Does a full page reload at the URL. | If Soft doesn't update the view (a few routers need this). |
+
+### B. Paste a deep link into the address bar (automatic)
+
+Just paste a deep URL into Chrome's address bar and press Enter — or refresh a deep page,
+or open a link someone shared. If the server can't serve that deep route directly (you'd
+normally get a blank page or 404), **the extension quietly loads the app and takes you to
+the right route**. You don't have to open the popup.
+
+This is **on by default for every site** and only kicks in when a page actually fails to
+load — normal pages are never touched.
+
+### Settings (in the popup)
+
+- **Auto-fix deep links on all sites** — master on/off for the address-bar fixing (on by default).
+- **Disable on `<host>`** — turn the auto-fix off for just the site you're currently on.
+- **Debug logging** — off by default. Turn it on if something isn't working and you want
+  to see what the extension is doing (see [Troubleshooting](#troubleshooting)).
+
+---
+
+## Troubleshooting
+
+**I changed/updated the extension and nothing happens.**
+After any update, go to `chrome://extensions` and click the **reload ↻** icon on the
+extension card. Then **reload the open tabs** you want it to work on — the in-page part
+only attaches to pages opened *after* the reload.
+
+**The address-bar auto-fix didn't fix a broken deep link.**
+1. Open the popup and turn on **Debug logging**.
+2. Reload the broken page.
+3. Open the page's own DevTools console (**F12** → **Console**) and look for
+   `[SPA Direct Nav · content]` lines — they say exactly what it tried and where it stopped.
+4. For the background side, open `chrome://extensions` → click the **service worker** link
+   on the card → its console shows `[SPA Direct Nav]` lines.
+
+Common reasons it won't auto-fix (by design): the site isn't a single-page app, the deep
+link is a genuine 404 everywhere, or the page lives behind a login that redirects.
+
+**Soft mode changes the URL but the page doesn't update.**
+A few routers (e.g. Next.js App Router) ignore the History API trick. Switch the popup to
+**Hard** mode for that site.
+
+---
+
+## Privacy
+
+Everything runs locally in your browser. The extension makes no calls to any server of its
+own and collects no data. Its settings and "recent" list are stored only in your browser.
+It needs broad site access (`<all_urls>`) so the auto-fix can work on any app you visit;
+debug logging is **off by default** so your browsing isn't printed anywhere.
+
+---
+
+## For developers
+
+### How it works
+
+- **Soft navigation** uses the History API (`pushState` + synthetic `popstate`/`hashchange`)
+  so the app's router re-renders without a reload.
+- **Cold deep-links** (server 404s the route) are recovered by *probe-and-strip*: walk up
+  the path (`/a/b/c` → `/a/b/` → `/a/` → `/`), find the deepest URL the server actually
+  serves, load that app shell, wait for the router to mount, then soft-route to the full URL.
+- **Address-bar auto-fix** is driven by real HTTP status: the background worker watches
+  main-frame responses (`webRequest`) and only the confirmed-error pages attempt recovery,
+  after verifying the base looks like an SPA shell. Probes run in the page, so auth cookies
+  are sent. Results are memoized per origin to avoid repeat work.
+
+### Files
 
 | File | Purpose |
 | --- | --- |
-| `manifest.json` | MV3 manifest, permissions, action/popup wiring |
-| `popup.html` / `popup.css` | Popup UI |
-| `popup.js` | Resolves the target, runs the in-place soft path, manages recent history |
-| `background.js` | Service worker: smart-nav pipeline, webRequest error tracking |
+| `manifest.json` | MV3 manifest, permissions, popup wiring |
+| `popup.html` / `popup.css` / `popup.js` | Popup UI and the in-place soft path |
+| `background.js` | Service worker: smart-nav pipeline + `webRequest` error tracking |
 | `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
 | `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, …) |
 | `test/` | Node unit tests for `lib.js` |
-| `icons/` | Toolbar icons (16/48/128) |
+| `icons/` | Toolbar icons |
 
-## Tests
-
-Pure logic in `lib.js` is unit-tested with Node's built-in test runner (no dependencies):
+### Tests
 
 ```sh
-npm test     # or: node --test
+npm test     # or: node --test  (Node 18+, no dependencies)
 ```
 
-## Permissions
+### Permissions
 
-- `tabs` / `activeTab` — read the active tab's URL and update it.
-- `scripting` + `host_permissions: <all_urls>` — inject the soft-navigation routine into the page.
+- `tabs` / `activeTab` — read and update the active tab's URL.
+- `scripting` + `host_permissions: <all_urls>` — run the soft-navigation routine in pages.
 - `webRequest` — observe main-frame HTTP status so auto-fix only fires on real errors.
-- `webNavigation` — invalidate stale error state when a new top-frame navigation starts.
-- `storage` — keep the recent list and auto-fix settings; error state lives in
-  `storage.session` so it survives the service worker being evicted.
+- `webNavigation` — invalidate stale error state when a new navigation starts.
+- `storage` — keep settings and the recent list; transient error state uses `storage.session`.
 
-## Notes / limits
+### Limits
 
-- Soft mode only works **same-origin**. A different host can't be reached via `pushState`,
-  so the extension falls back to a full load.
-- Soft navigation relies on the router listening to `popstate`/`hashchange`. React Router,
-  Vue Router and Angular react to these; a few routers (e.g. **Next.js App Router**) drive
-  navigation through their own history wrapper and may ignore a synthetic `popstate` — for
-  those, use **Hard** mode.
-- **Auth-gated dev sites:** if a deep link 404s but the servable base redirects to an SSO
-  login page that is itself an SPA, auto-fix may route into the login shell. Disable auto-fix
-  on that host if this is noisy.
-- The redirect→soft-route recovery only attempts **one** redirect per chain (a `sessionStorage`
-  guard) to avoid loops; if the chosen base also errors, it leaves the page as-is.
-- It cannot inject into restricted pages (`chrome://`, the Web Store, etc.).
+- Soft mode is **same-origin** only; a different host falls back to a full load.
+- Recovery attempts **one** redirect per chain (a `sessionStorage` guard prevents loops);
+  if the chosen base also errors, the page is left as-is.
+- It can't run on restricted pages (`chrome://`, the Chrome Web Store, etc.).
