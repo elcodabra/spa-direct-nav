@@ -18,6 +18,7 @@
   const BLOCK_KEY = "spaDirectNav.autoBlocklist"; // array of host patterns
   const PENDING_KEY = "spaDirectNav.pendingRoute";
   const ATTEMPT_KEY = "spaDirectNav.recoverAttempted"; // loop guard (sessionStorage)
+  const BASE_CACHE_KEY = "spaDirectNav.baseCache"; // memoized servable base path (per origin/tab)
   const MOUNT_TIMEOUT = 9000;
   const POLL_MS = 100;
 
@@ -117,13 +118,18 @@
         softRoute(pending);
         sessionStorage.removeItem(ATTEMPT_KEY); // success — reset the loop guard
       } else {
-        log("not mounted in time (ok=" + ok + ") — leaving base page");
+        log("not mounted in time (ok=" + ok + ") — clearing base cache, leaving page");
+        sessionStorage.removeItem(BASE_CACHE_KEY); // the cached base may be stale — re-probe next time
       }
       return;
     }
 
-    // Half 1: only act if this load was an actual HTTP error (cheap on normal pages).
-    if (here === "/") return sessionStorage.removeItem(ATTEMPT_KEY);
+    // Half 1.
+    // Fast exit: a mounted app is never a broken deep link, so skip the background
+    // round-trip entirely (the common case while browsing an SPA).
+    if (here === "/" || isMounted()) return sessionStorage.removeItem(ATTEMPT_KEY);
+
+    // Only act if this load was an actual HTTP error.
     const isError = await wasErrorLoad();
     if (!isError) {
       sessionStorage.removeItem(ATTEMPT_KEY); // a normal load resets the loop guard
@@ -131,21 +137,29 @@
     }
     log("HTTP error load detected at", here, "— attempting recovery");
 
-    if (isMounted()) return log("app already mounted despite error status — leaving as-is");
-
     // Loop guard: never redirect more than once per recovery chain. If the base we
     // picked also errors, bail instead of ricocheting between bases.
     if (sessionStorage.getItem(ATTEMPT_KEY)) {
       return log("already attempted a recovery redirect — bailing to avoid a loop");
     }
 
-    const base = await spaFindServableBase(location.href, {
-      includeFull: false, // page already errored — no point retesting the full URL
-      onProbe: (c, ok) => log("probe", c, "->", ok ? "200" : "not ok"),
-    });
-    log("servable base:", base);
-    if (!base || new URL(base).pathname === location.pathname) return log("no usable base — give up");
-    if (!(await looksLikeSpa(base))) return log("base is not an SPA shell — leave 404 as-is");
+    // Cache hit: reuse a base discovered earlier this session for the same deploy,
+    // skipping the probe walk and the SPA-shell fetch.
+    let base = null;
+    const cached = sessionStorage.getItem(BASE_CACHE_KEY);
+    if (cached && here.startsWith(cached) && location.pathname !== cached) {
+      base = location.origin + cached;
+      log("base cache hit —", base);
+    } else {
+      base = await spaFindServableBase(location.href, {
+        includeFull: false, // page already errored — no point retesting the full URL
+        onProbe: (c, ok) => log("probe", c, "->", ok ? "200" : "not ok"),
+      });
+      log("servable base:", base);
+      if (!base || new URL(base).pathname === location.pathname) return log("no usable base — give up");
+      if (!(await looksLikeSpa(base))) return log("base is not an SPA shell — leave 404 as-is");
+      sessionStorage.setItem(BASE_CACHE_KEY, new URL(base).pathname); // memoize for next time
+    }
 
     log("stashing", here, "and redirecting to base", base);
     sessionStorage.setItem(ATTEMPT_KEY, "1");
