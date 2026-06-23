@@ -36,7 +36,7 @@ setup.
 ### A. Jump to a route from the popup
 
 <p align="center">
-  <img src="docs/popup.png" alt="SPA Direct Nav popup: path input, Soft/Hard mode, Go and Current buttons, settings checkboxes, and a recent destinations list" width="360" />
+  <img src="docs/popup.png" alt="SPA Direct Nav popup, Navigate tab: tab bar (Navigate, Recent, API routing, Mock API), a path input, Soft/Hard mode, Go and Current buttons, and the auto-fix settings" width="360" />
 </p>
 
 1. Open the app you're working in (any SPA).
@@ -75,6 +75,10 @@ to /dashboard/reports/q3”*), so you always know it acted.
 
 ### C. Route an API path to another server
 
+<p align="center">
+  <img src="docs/api-routing.png" alt="The API routing tab: a prefix → target form and a per-site list of routes" width="360" />
+</p>
+
 Open the popup, switch to the **API routing** tab, and add a rule for the site you're on:
 
 ```
@@ -97,6 +101,10 @@ staging backend without touching its code or running a dev proxy.
   calls work with no server changes.
 
 ### D. Mock an API response
+
+<p align="center">
+  <img src="docs/mock.png" alt="The Mock API tab: method, path, status, and a JSON response-body editor, with a list of saved mocks" width="360" />
+</p>
 
 Open the popup, switch to the **Mock API** tab, and add a mock for the site you're on:
 choose a method (or **ANY**), a path, a status code, and a response body.
