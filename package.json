@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Chrome extension to navigate SPAs directly to any route/URL.",
+  "license": "MIT",
   "scripts": {
     "test": "node --test"
   }
