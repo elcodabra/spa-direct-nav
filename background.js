@@ -10,8 +10,9 @@
  * the popup closing.
  */
 
-const ROUTER_BOOT_MS = 700; // grace period after page load for the SPA router to mount
 const NAV_TIMEOUT_MS = 20000; // safety cap on waiting for a tab to finish loading
+const READY_TIMEOUT_MS = 8000; // max time to poll for the SPA router to mount
+const READY_POLL_MS = 50; // how often to re-check readiness inside the page
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "smartNav") {
@@ -37,14 +38,15 @@ async function smartNav(tabId, target) {
     return { mode: "hard", base, message: "Server serves it directly — full load." };
   }
 
-  // Found a shallower URL the server serves: load it, let the app boot, then route.
+  // Found a shallower URL the server serves: load it, wait for the app to mount,
+  // then route the rest of the way.
   await navigateAndWait(tabId, base);
-  await delay(ROUTER_BOOT_MS);
-  await softNavigateInTab(tabId, target);
+  const { ready, waitedMs } = await softNavigateInTab(tabId, target);
+  const note = ready ? `app ready in ${waitedMs}ms` : `router not detected after ${waitedMs}ms`;
   return {
     mode: "smart",
     base,
-    message: `Loaded ${pathOf(base)} → soft-routed to ${pathOf(target)}.`,
+    message: `Loaded ${pathOf(base)} → soft-routed to ${pathOf(target)} (${note}).`,
   };
 }
 
@@ -109,22 +111,67 @@ function navigateAndWait(tabId, url) {
   });
 }
 
-/** Inject the pushState + event dispatch into the page so its router reacts. */
+/**
+ * Inject a poll-until-ready routine: wait for the SPA router/app to mount, then
+ * pushState + dispatch events. Returns { ready, waitedMs }. Runs in the page; the
+ * returned promise is awaited by executeScript.
+ */
 async function softNavigateInTab(tabId, target) {
-  await chrome.scripting.executeScript({
+  const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: (full) => {
-      const url = new URL(full);
-      history.pushState({}, "", url.pathname + url.search + url.hash);
-      window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    },
-    args: [target],
+    func: pageWaitThenSoftNavigate,
+    args: [target, READY_TIMEOUT_MS, READY_POLL_MS],
   });
+  return result || { ready: false, waitedMs: 0 };
 }
 
-function delay(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+/**
+ * Page-context function (no external references — it is serialized and injected).
+ * Polls for signs that a client-side router has mounted, then performs the
+ * History API navigation so the router picks it up.
+ */
+function pageWaitThenSoftNavigate(full, timeoutMs, intervalMs) {
+  const start = Date.now();
+
+  function isReady() {
+    // Strong signals: a framework has attached to the DOM.
+    try {
+      const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+      if (hook && hook.renderers && hook.renderers.size > 0) return true;
+    } catch (_) {}
+    try {
+      if (typeof window.getAllAngularRootElements === "function" &&
+          window.getAllAngularRootElements().length > 0) return true;
+    } catch (_) {}
+
+    const roots = ["#root", "#app", "#__next", "[data-reactroot]", "[ng-version]", "main", "body > div"];
+    for (const sel of roots) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      if (el.__vue_app__ || el.__vue__) return true; // Vue 3 / Vue 2
+      if (el.childElementCount > 0) return true; // app has rendered something
+    }
+    return false;
+  }
+
+  function navigate() {
+    const url = new URL(full);
+    history.pushState({}, "", url.pathname + url.search + url.hash);
+    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+
+  return new Promise((resolve) => {
+    (function poll() {
+      const ready = isReady();
+      if (ready || Date.now() - start >= timeoutMs) {
+        navigate();
+        resolve({ ready, waitedMs: Date.now() - start });
+        return;
+      }
+      setTimeout(poll, intervalMs);
+    })();
+  });
 }
 
 function sameUrl(a, b) {

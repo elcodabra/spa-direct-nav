@@ -16,8 +16,9 @@ the active tab there in one of two modes:
     on a fresh GET — common with feature-branch/preview deploys), it runs a
     **probe-and-strip** pipeline in the background worker: it walks up the path
     (`/a/b/c` → `/a/b/` → `/a/` → `/`), finds the deepest URL the server actually
-    serves (the app shell), hard-loads that, waits for the app to mount, then
-    soft-routes the rest of the way to the full URL.
+    serves (the app shell), hard-loads that, **polls in-page until the router
+    actually mounts** (framework markers, with a rendered-content fallback and an
+    8s cap), then soft-routes the rest of the way to the full URL.
 - **Hard** — sets the tab URL directly, performing a normal full page load at the target.
 
 Other niceties:
