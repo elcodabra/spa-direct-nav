@@ -113,8 +113,8 @@ button.ghost { background: transparent; }
 
 .auto span { line-height: 1.35; }
 
-/* Nest sub-options under the parent label's text (checkbox width + gap). */
-.auto.sub { margin-top: 6px; padding-left: 20px; font-size: 11px; }
+/* Sub-options sit flush with the first checkbox, just smaller and spaced. */
+.auto.sub { margin-top: 6px; font-size: 11px; }
 
 .auto b { color: var(--text); font-weight: 600; }
 
