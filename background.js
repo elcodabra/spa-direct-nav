@@ -86,6 +86,10 @@ chrome.runtime.onStartup.addListener(() => {
   syncContentScripts();
   syncApiRules();
 });
+// Also on every worker start: an unpacked extension whose files changed on disk is picked up
+// on the next browser launch WITHOUT onInstalled, and without this it would run with no
+// content scripts registered (and no seeded blacklist). Both steps are idempotent.
+seedSiteLists().then(syncContentScripts);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[API_ROUTES_KEY]) syncApiRules();
   if (area === "local" && (changes[SITE_MODE_KEY] || changes[BLACKLIST_KEY] || changes[WHITELIST_KEY])) syncContentScripts();
