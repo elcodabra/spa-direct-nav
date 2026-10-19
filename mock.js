@@ -23,6 +23,7 @@
  */
 (function () {
   if (window.top !== window) return; // top frame only
+  if (!/^https?:$/.test(location.protocol)) return; // mocks exist only for http(s) origins
 
   let mocks = [];
   let installed = false;

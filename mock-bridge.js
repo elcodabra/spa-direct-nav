@@ -10,6 +10,9 @@
  */
 (function () {
   if (window.top !== window) return; // top frame only
+  // Mocks are per http(s) origin. file://, data:, about: pages have an opaque origin ("null"),
+  // where postMessage(…, location.origin) throws ('file://' is not a valid target).
+  if (!/^https?:$/.test(location.protocol)) return;
 
   const MOCKS_KEY = "spaDirectNav.mocks";
 
