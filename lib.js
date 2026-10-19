@@ -201,9 +201,108 @@ function buildApiRoutingRules(routes, startId) {
   return rules;
 }
 
+/* ---------- where the extension runs: blacklist / whitelist ---------- */
+
+const SITE_MODE_KEY = "spaDirectNav.siteMode"; // "blacklist" (default): everywhere except; "whitelist": only on
+const BLACKLIST_KEY = "spaDirectNav.blacklist"; // array of hosts, each also covers its subdomains
+const WHITELIST_KEY = "spaDirectNav.whitelist";
+
+// Everyday sites where the extension has nothing to fix and only adds risk (big apps that
+// wrap XHR/fetch themselves, auth pages). Seeded once on install; editable in the popup.
+const DEFAULT_BLACKLIST = [
+  "google.com", "youtube.com", "gmail.com",
+  "github.com", "gitlab.com", "atlassian.net", "linear.app", "notion.so", "figma.com",
+  "slack.com", "telegram.org", "whatsapp.com",
+  "chatgpt.com", "openai.com", "claude.ai", "anthropic.com",
+  "vercel.com", "amplitude.com", "upstash.com",
+  "yandex.ru", "ya.ru",
+  "apple.com", "icloud.com", "microsoft.com", "live.com", "office.com",
+  "paypal.com", "stripe.com",
+];
+
+/**
+ * Turn what a user types ("https://App.Example.com:3000/x", "*.example.com", "example.com")
+ * into a bare lowercase host, or null if it is not a usable host.
+ */
+function normalizeSiteEntry(input) {
+  let s = String(input || "").trim().toLowerCase();
+  if (!s) return null;
+  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, ""); // scheme
+  s = s.replace(/[/?#].*$/, ""); // path, query, hash
+  s = s.replace(/^.*@/, ""); // credentials
+  s = s.replace(/:\d+$/, ""); // port (match patterns ignore ports)
+  s = s.replace(/^\*\./, "").replace(/^\.+|\.+$/g, "");
+  if (!/^[a-z0-9.-]+$/.test(s) || s.includes("..")) return null;
+  if (s !== "localhost" && !s.includes(".")) return null;
+  return s;
+}
+
+const isIpv4 = (h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
+
+/** Chrome match patterns for a host and all its subdomains. */
+function siteMatchPatterns(host) {
+  const h = normalizeSiteEntry(host);
+  if (!h) return [];
+  const out = [`*://${h}/*`];
+  if (h !== "localhost" && !isIpv4(h)) out.push(`*://*.${h}/*`);
+  return out;
+}
+
+/** True if `hostname` is one of the list's hosts or a subdomain of one. */
+function hostInSiteList(hostname, list) {
+  const h = String(hostname || "").toLowerCase();
+  if (!h) return false;
+  return (list || []).some((entry) => {
+    const e = normalizeSiteEntry(entry);
+    return !!e && (h === e || h.endsWith("." + e));
+  });
+}
+
+/** Does the extension run on this hostname under the given settings? */
+function siteAllowed(hostname, cfg) {
+  const mode = cfg && cfg.mode === "whitelist" ? "whitelist" : "blacklist";
+  return mode === "whitelist"
+    ? hostInSiteList(hostname, cfg.whitelist)
+    : !hostInSiteList(hostname, cfg && cfg.blacklist);
+}
+
+/**
+ * The content scripts as `chrome.scripting.registerContentScripts` entries, scoped by the
+ * site lists: blacklist mode = all URLs minus excludeMatches; whitelist mode = only the
+ * listed hosts (nothing at all when the whitelist is empty).
+ */
+function buildContentScriptRegistrations(cfg) {
+  const mode = cfg && cfg.mode === "whitelist" ? "whitelist" : "blacklist";
+  const patterns = (list) => [...new Set((list || []).flatMap(siteMatchPatterns))];
+  let scope;
+  if (mode === "whitelist") {
+    const matches = patterns(cfg.whitelist);
+    if (!matches.length) return [];
+    scope = { matches };
+  } else {
+    const excludeMatches = patterns(cfg && cfg.blacklist);
+    scope = excludeMatches.length ? { matches: ["<all_urls>"], excludeMatches } : { matches: ["<all_urls>"] };
+  }
+  const base = { allFrames: false, persistAcrossSessions: true, ...scope };
+  return [
+    { id: "spa-mock-main", js: ["mock.js"], runAt: "document_start", world: "MAIN", ...base },
+    { id: "spa-mock-bridge", js: ["mock-bridge.js"], runAt: "document_start", ...base },
+    { id: "spa-content", js: ["toast.js", "lib.js", "content.js"], runAt: "document_idle", ...base },
+  ];
+}
+
 // Node-only export for unit tests; skipped in the browser/worker (module is undefined).
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    normalizeSiteEntry,
+    siteMatchPatterns,
+    hostInSiteList,
+    siteAllowed,
+    buildContentScriptRegistrations,
+    DEFAULT_BLACKLIST,
+    SITE_MODE_KEY,
+    BLACKLIST_KEY,
+    WHITELIST_KEY,
     spaIsServable,
     spaFindServableBase,
     sameUrl,

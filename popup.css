@@ -300,3 +300,16 @@ button.link {
 
 .status.error { color: #ff7a7a; }
 .status.ok { color: #6fcf97; }
+
+/* ---------- sites ---------- */
+
+.site-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.site-state { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site-state.on { color: #6fcf97; }
+.site-state.off { color: #ff9f6b; }
+button.small { padding: 5px 9px; font-size: 11px; flex: 0 0 auto; }
+.site-mode { margin-bottom: 10px; }
+#siteInput { flex: 1; }
+.site-list { list-style: none; margin: 0; padding: 0; max-height: 170px; overflow-y: auto; }
+.hint { margin-top: 8px; }
+[hidden] { display: none !important; }

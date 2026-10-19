@@ -126,6 +126,29 @@ or freezing flaky data.
   asynchronously — a request fired in the very first tick of page load may slip through
   before the list arrives. Reload once after adding a mock if that happens.
 
+### E. Choose where it runs (blacklist / whitelist)
+
+<p align="center">
+  <img src="docs/sites.png" alt="The Sites tab: current-site state with a one-click toggle, blacklist/whitelist mode, and the list of hosts" width="340" />
+</p>
+
+The **Sites** tab decides on which sites the extension is injected at all:
+
+- **Everywhere except the blacklist** *(default)*. On first install the blacklist is
+  prefilled with everyday sites where there is nothing to fix and only risk (Google incl. the
+  Cloud console, YouTube, GitHub, GitLab, Atlassian, Linear, Notion, Figma, Slack, Telegram,
+  ChatGPT/OpenAI, Claude, Vercel, Yandex, Apple, Microsoft, PayPal, Stripe, …). **add
+  defaults** merges them back in later without touching your own entries.
+- **Only on the whitelist**: list just the apps you develop (`localhost`,
+  `tools-dev.example.com`, …). An empty whitelist means it runs nowhere.
+- Every entry covers the host **and its subdomains** (`google.com` covers
+  `console.cloud.google.com`). Paste a URL and it's reduced to its host.
+- **Turn off on this site** / **Run on this site** toggles the page you're on and reloads it.
+
+On a site that's off, none of the extension's in-page code is injected (the content scripts
+are registered with Chrome's match/exclude patterns), so it cannot affect that site. Changes
+apply to pages loaded after the change, so reload open tabs.
+
 ### Settings (in the popup)
 
 - **Auto-fix deep links on all sites** — master on/off for the address-bar fixing (on by default).
@@ -136,6 +159,10 @@ or freezing flaky data.
 ---
 
 ## Troubleshooting
+
+**A site stops working (blank page, endless spinner) while the extension is on.**
+Open the popup → **Sites** → **Turn off on this site**. The page reloads without any of the
+extension's code. If it's a site you use every day, keep it in the blacklist.
 
 **I changed/updated the extension and nothing happens.**
 After any update, go to `chrome://extensions` and click the **reload ↻** icon on the
@@ -191,17 +218,22 @@ debug logging is **off by default** so your browsing isn't printed anywhere.
 | `background.js` | Service worker: smart-nav pipeline + `webRequest` error tracking |
 | `content.js` | Address-bar auto-fix (detect HTTP error → recover) |
 | `toast.js` | In-page confirmation toast (`window.__spaToast`) shown on every extension navigation |
-| `mock.js` | MAIN-world patch of `fetch`/`XMLHttpRequest` that answers mocked requests |
+| `mock.js` | MAIN-world patch of `fetch`/`XMLHttpRequest` that answers mocked requests. Installs only on origins that have mocks; XHR is patched on its prototype (the constructor stays native, so `class X extends XMLHttpRequest` keeps working) |
 | `mock-bridge.js` | Isolated-world bridge: reads saved mocks from storage → posts them to `mock.js` |
-| `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, …) |
-| `test/` | Node unit tests for `lib.js` |
+| `lib.js` | Shared pure helpers (`spaFindServableBase`, `sameUrl`, `pathOf`, site lists, …) |
+| `test/` | Node unit tests for `lib.js`; `test/e2e/` real-Chromium tests of the mocker and the site lists |
 | `icons/` | Toolbar icons |
 
 ### Tests
 
 ```sh
-npm test     # or: node --test  (Node 18+, no dependencies)
+npm test          # unit tests (Node 18+, no dependencies)
+npm run test:e2e  # real Chromium with the unpacked extension (npm i -D playwright && npx playwright install chromium)
 ```
+
+Content scripts are not in `manifest.json`: `background.js` registers them at runtime
+(`chrome.scripting.registerContentScripts`) from the site lists and re-registers on every
+change, so the lists are enforced by Chrome itself.
 
 ### Permissions
 
@@ -210,7 +242,7 @@ npm test     # or: node --test  (Node 18+, no dependencies)
 - `webRequest` — observe main-frame HTTP status so auto-fix only fires on real errors.
 - `webNavigation` — invalidate stale error state when a new navigation starts.
 - `declarativeNetRequest` — apply the per-site API-routing redirect + CORS-header rules.
-- `storage` — keep settings, the recent list, and API routes; transient error state uses `storage.session`.
+- `storage` — keep settings, the recent list, API routes and the site lists; transient error state uses `storage.session`.
 
 ### Limits
 

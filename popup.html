@@ -18,6 +18,7 @@
       <button class="tab" id="tabRecentBtn" data-tab="recent" role="tab" aria-selected="false">Recent</button>
       <button class="tab" id="tabApiBtn" data-tab="api" role="tab" aria-selected="false">API routing</button>
       <button class="tab" id="tabMockBtn" data-tab="mock" role="tab" aria-selected="false">Mock API</button>
+      <button class="tab" id="tabSitesBtn" data-tab="sites" role="tab" aria-selected="false">Sites</button>
     </nav>
 
     <div class="tabpanel" id="tab-nav" role="tabpanel">
@@ -96,6 +97,33 @@
       <ul id="mockList"></ul>
     </div>
 
+    <div class="tabpanel" id="tab-sites" role="tabpanel" hidden>
+      <div class="site-head">
+        <span class="site-state" id="siteState">—</span>
+        <button id="siteHere" class="ghost small">Turn off on this site</button>
+      </div>
+      <div class="mode site-mode">
+        <label title="The extension runs on every site except the ones in the blacklist.">
+          <input type="radio" name="siteMode" value="blacklist" />
+          Everywhere except the blacklist
+        </label>
+        <label title="The extension runs only on the sites in the whitelist.">
+          <input type="radio" name="siteMode" value="whitelist" />
+          Only on the whitelist
+        </label>
+      </div>
+      <div class="recent-head">
+        <span id="siteListTitle">Blacklist: never runs on</span>
+        <button id="siteReset" class="link" title="Add the default everyday sites back">add defaults</button>
+      </div>
+      <div class="api-form">
+        <input id="siteInput" type="text" placeholder="example.com (covers subdomains)" autocomplete="off" spellcheck="false" />
+        <button id="siteAdd" class="ghost">Add</button>
+      </div>
+      <ul id="siteList" class="site-list"></ul>
+      <p class="apis-on hint">Changes apply to pages loaded after the change. Reload open tabs.</p>
+    </div>
+
     <div class="tabpanel" id="tab-recent" role="tabpanel" hidden>
       <section class="recent">
         <div class="recent-head">
@@ -109,6 +137,7 @@
     <p class="status" id="status"></p>
   </div>
 
+  <script src="lib.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

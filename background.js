@@ -77,13 +77,65 @@ async function syncApiRules() {
   dlog("API routing: synced", addRules.length, "rules from", routes.length, "route(s)");
 }
 
-chrome.runtime.onInstalled.addListener(() => syncApiRules());
-chrome.runtime.onStartup.addListener(() => syncApiRules());
+chrome.runtime.onInstalled.addListener(async () => {
+  await seedSiteLists();
+  await syncContentScripts();
+  syncApiRules();
+});
+chrome.runtime.onStartup.addListener(() => {
+  syncContentScripts();
+  syncApiRules();
+});
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[API_ROUTES_KEY]) syncApiRules();
+  if (area === "local" && (changes[SITE_MODE_KEY] || changes[BLACKLIST_KEY] || changes[WHITELIST_KEY])) syncContentScripts();
 });
 
+/* ---------- where the content scripts run (blacklist / whitelist) ---------- */
+
+function getSiteConfig() {
+  return new Promise((resolve) =>
+    chrome.storage.local.get([SITE_MODE_KEY, BLACKLIST_KEY, WHITELIST_KEY], (r) =>
+      resolve({
+        mode: r[SITE_MODE_KEY] === "whitelist" ? "whitelist" : "blacklist",
+        blacklist: r[BLACKLIST_KEY] || [],
+        whitelist: r[WHITELIST_KEY] || [],
+      })
+    )
+  );
+}
+
+// First install (or an update from a version without site lists): start from the default
+// blacklist. Never overwrites lists the user already has.
+async function seedSiteLists() {
+  const r = await chrome.storage.local.get([BLACKLIST_KEY, WHITELIST_KEY, SITE_MODE_KEY]);
+  const patch = {};
+  if (!Array.isArray(r[BLACKLIST_KEY])) patch[BLACKLIST_KEY] = DEFAULT_BLACKLIST.slice();
+  if (!Array.isArray(r[WHITELIST_KEY])) patch[WHITELIST_KEY] = [];
+  if (!r[SITE_MODE_KEY]) patch[SITE_MODE_KEY] = "blacklist";
+  if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+}
+
+// Content scripts are registered at runtime (not in the manifest) so the site lists decide
+// where they are injected at all: a blacklisted site never sees a line of our code.
+let syncing = Promise.resolve();
+function syncContentScripts() {
+  syncing = syncing.then(async () => {
+    const cfg = await getSiteConfig();
+    const regs = buildContentScriptRegistrations(cfg);
+    const existing = await chrome.scripting.getRegisteredContentScripts();
+    if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: existing.map((s) => s.id) });
+    if (regs.length) await chrome.scripting.registerContentScripts(regs);
+    dlog("content scripts:", cfg.mode, regs.length ? regs[0].matches.length + " match / " + (regs[0].excludeMatches || []).length + " exclude patterns" : "none (empty whitelist)");
+  }).catch((e) => console.warn("[SPA Direct Nav] content script sync failed:", e && e.message));
+  return syncing;
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "syncSites") {
+    syncContentScripts().then(() => sendResponse({ ok: true }));
+    return true;
+  }
   if (msg?.type === "smartNav") {
     smartNav(msg.tabId, msg.target)
       .then(sendResponse)

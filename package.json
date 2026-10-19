@@ -1,10 +1,14 @@
 {
   "name": "spa-direct-nav",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Chrome extension to navigate SPAs directly to any route/URL.",
   "license": "MIT",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node test/e2e/mock.mjs && node test/e2e/sites.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
   }
 }

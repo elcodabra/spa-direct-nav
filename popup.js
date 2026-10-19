@@ -1,10 +1,10 @@
 const $ = (id) => document.getElementById(id);
+// SPA_DEBUG_KEY, API_ROUTES_KEY, MOCKS_KEY, SITE_MODE_KEY, BLACKLIST_KEY, WHITELIST_KEY,
+// DEFAULT_BLACKLIST and the site-list helpers come from lib.js (loaded first by popup.html).
 const HISTORY_KEY = "spaDirectNav.history";
 const AUTO_ENABLED_KEY = "spaDirectNav.autoEnabled";
 const AUTO_BLOCK_KEY = "spaDirectNav.autoBlocklist";
-const DEBUG_KEY = "spaDirectNav.debug";
-const API_ROUTES_KEY = "spaDirectNav.apiRoutes";
-const MOCKS_KEY = "spaDirectNav.mocks";
+const DEBUG_KEY = SPA_DEBUG_KEY;
 const MAX_HISTORY = 12;
 
 let currentTab = null;
@@ -26,6 +26,7 @@ async function init() {
   await initAutoToggle();
   await initApiRouting();
   await initMocks();
+  await initSites();
   initTabs();
 
   $("go").addEventListener("click", navigate);
@@ -51,6 +52,7 @@ function initTabs() {
     { btn: $("tabRecentBtn"), panel: $("tab-recent"), focus: () => {} },
     { btn: $("tabApiBtn"), panel: $("tab-api"), focus: () => !$("apiPrefix").disabled && $("apiPrefix").focus() },
     { btn: $("tabMockBtn"), panel: $("tab-mock"), focus: () => !$("mockPath").disabled && $("mockPath").focus() },
+    { btn: $("tabSitesBtn"), panel: $("tab-sites"), focus: () => $("siteInput").focus() },
   ];
 
   function select(name) {
@@ -511,6 +513,135 @@ async function renderMocks() {
     del.title = "Remove this mock";
     del.addEventListener("click", () => removeMock(m.id));
 
+    li.appendChild(text);
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
+}
+
+/* ---------- sites: where the extension runs (blacklist / whitelist) ---------- */
+
+function getSiteConfig() {
+  return new Promise((resolve) =>
+    chrome.storage.local.get([SITE_MODE_KEY, BLACKLIST_KEY, WHITELIST_KEY], (r) =>
+      resolve({
+        mode: r[SITE_MODE_KEY] === "whitelist" ? "whitelist" : "blacklist",
+        blacklist: Array.isArray(r[BLACKLIST_KEY]) ? r[BLACKLIST_KEY] : DEFAULT_BLACKLIST.slice(),
+        whitelist: r[WHITELIST_KEY] || [],
+      })
+    )
+  );
+}
+
+function setSites(patch) {
+  return new Promise((resolve) => chrome.storage.local.set(patch, resolve));
+}
+
+function currentHost() {
+  try {
+    const u = new URL(currentTab.url);
+    return /^https?:$/.test(u.protocol) ? u.hostname : "";
+  } catch {
+    return "";
+  }
+}
+
+const listKey = (mode) => (mode === "whitelist" ? WHITELIST_KEY : BLACKLIST_KEY);
+
+async function initSites() {
+  for (const r of document.querySelectorAll('input[name="siteMode"]')) {
+    r.addEventListener("change", async () => {
+      if (!r.checked) return;
+      await setSites({ [SITE_MODE_KEY]: r.value });
+      setStatus(r.value === "whitelist" ? "Runs only on whitelisted sites. Reload open tabs." : "Runs everywhere except blacklisted sites. Reload open tabs.", "ok");
+      await renderSites();
+    });
+  }
+  $("siteAdd").addEventListener("click", () => addSite($("siteInput").value));
+  $("siteInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addSite($("siteInput").value);
+  });
+  $("siteHere").addEventListener("click", toggleCurrentSite);
+  $("siteReset").addEventListener("click", async () => {
+    const { blacklist } = await getSiteConfig();
+    await setSites({ [BLACKLIST_KEY]: [...new Set([...blacklist, ...DEFAULT_BLACKLIST])] });
+    setStatus("Default sites added back to the blacklist.", "ok");
+    await renderSites();
+  });
+  await renderSites();
+}
+
+async function addSite(raw) {
+  const host = normalizeSiteEntry(raw);
+  if (!host) return setStatus("Enter a host, e.g. example.com", "error");
+  const cfg = await getSiteConfig();
+  const list = cfg[cfg.mode];
+  if (!list.includes(host)) await setSites({ [listKey(cfg.mode)]: [...list, host] });
+  $("siteInput").value = "";
+  setStatus(`${host} added to the ${cfg.mode}. Reload its tabs.`, "ok");
+  await renderSites();
+}
+
+async function removeSite(host) {
+  const cfg = await getSiteConfig();
+  await setSites({ [listKey(cfg.mode)]: cfg[cfg.mode].filter((h) => h !== host) });
+  setStatus(`${host} removed from the ${cfg.mode}. Reload its tabs.`, "ok");
+  await renderSites();
+}
+
+// One click for the page you're on: turn the extension off here (blacklist mode) or on here
+// (whitelist mode). If a parent domain is what matches, say so instead of guessing.
+async function toggleCurrentSite() {
+  const host = currentHost();
+  if (!host) return;
+  const cfg = await getSiteConfig();
+  const list = cfg[cfg.mode];
+  const exact = list.find((e) => normalizeSiteEntry(e) === host);
+  if (exact) return removeSite(exact);
+  if (hostInSiteList(host, list)) {
+    const parent = list.find((e) => hostInSiteList(host, [e]));
+    return setStatus(`Covered by ${parent}. Remove that entry to change it.`, "error");
+  }
+  await addSite(host);
+  if (currentTab?.id) chrome.tabs.reload(currentTab.id);
+}
+
+async function renderSites() {
+  const cfg = await getSiteConfig();
+  for (const r of document.querySelectorAll('input[name="siteMode"]')) r.checked = r.value === cfg.mode;
+  $("siteListTitle").textContent = cfg.mode === "whitelist" ? "Whitelist: runs only on" : "Blacklist: never runs on";
+  $("siteReset").hidden = cfg.mode !== "blacklist";
+
+  const host = currentHost();
+  const here = $("siteHere");
+  const runsHere = host ? siteAllowed(host, cfg) : false;
+  $("siteState").textContent = host ? (runsHere ? "Active on " : "Off on ") + host : "Not a web page";
+  $("siteState").className = "site-state " + (runsHere ? "on" : "off");
+  here.hidden = !host;
+  if (host) here.textContent = cfg.mode === "whitelist" ? (runsHere ? "Stop running here" : "Run on this site") : runsHere ? "Turn off on this site" : "Turn on here again";
+
+  const ul = $("siteList");
+  ul.innerHTML = "";
+  const list = [...cfg[cfg.mode]].sort((a, b) => (hostInSiteList(host, [b]) ? 1 : 0) - (hostInSiteList(host, [a]) ? 1 : 0) || a.localeCompare(b));
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "api-empty";
+    li.textContent = cfg.mode === "whitelist" ? "Empty: the extension runs nowhere." : "Empty: the extension runs everywhere.";
+    ul.appendChild(li);
+    return;
+  }
+  for (const h of list) {
+    const li = document.createElement("li");
+    li.className = "api-item" + (host && hostInSiteList(host, [h]) ? " here" : "");
+    const text = document.createElement("span");
+    text.className = "api-text";
+    text.textContent = h;
+    text.title = `${h} and its subdomains`;
+    const del = document.createElement("button");
+    del.className = "api-del";
+    del.textContent = "✕";
+    del.title = "Remove";
+    del.addEventListener("click", () => removeSite(h));
     li.appendChild(text);
     li.appendChild(del);
     ul.appendChild(li);
