@@ -13,6 +13,7 @@
 
   const MOCKS_KEY = "spaDirectNav.mocks";
 
+  let sent = false;
   function push() {
     try {
       chrome.storage.local.get(MOCKS_KEY, (r) => {
@@ -20,6 +21,9 @@
         const all = r[MOCKS_KEY] || [];
         const origin = location.origin;
         const mine = all.filter((m) => m && m.enabled !== false && (!m.site || m.site === origin));
+        // Nothing to mock and nothing sent before: stay silent, so mock.js never patches.
+        if (!mine.length && !sent) return;
+        sent = true;
         window.postMessage({ __spaMock: "config", mocks: mine }, location.origin);
       });
     } catch (_) {
